@@ -1,0 +1,58 @@
+{
+  "beszel": {
+    "description": "Beszel Hub",
+    "type": "object",
+    "items": {
+      "base_url": {"type": "string", "description": "Beszel Hub 地址", "default": "http://127.0.0.1:8090"},
+      "email": {"type": "string", "description": "登录用户邮箱", "hint": "用于登录 Beszel Hub的账号，建议创建仅有读取权限的账号", "default": ""},
+      "password": {
+        "type": "string",
+        "description": "登录用户密码",
+        "hint": "用于登录 Beszel Hub的密码",
+        "default": ""
+      },
+      "timeout_seconds": {"type": "int", "description": "请求超时（秒）", "default": 10, "slider": {"min": 2, "max": 60, "step": 1}},
+      "verify_tls": {"type": "bool", "description": "验证 TLS 证书", "default": true},
+      "history_default_range": {"type": "string", "description": "默认历史范围", "options": ["1h", "12h", "24h", "1w", "30d"], "default": "1h"}
+    }
+  },
+  "access": {
+    "description": "查询访问控制",
+    "type": "object",
+    "items": {
+      "mode": {"type": "string", "description": "访问模式", "options": ["admin_only", "umo_allowlist", "all"], "default": "admin_only"},
+      "allowed_umos": {"type": "list", "description": "允许的完整 UMO", "items": {"type": "string"}, "default": []}
+    }
+  },
+  "display": {
+    "description": "时间显示",
+    "type": "object",
+    "items": {
+      "timezone": {"type": "string", "description": "显示时区（留空继承 AstrBot）", "default": ""}
+    }
+  },
+  "render": {
+    "description": "图片渲染",
+    "type": "object",
+    "items": {
+      "page_size": {"type": "int", "description": "概览每页系统数", "default": 10, "slider": {"min": 4, "max": 20, "step": 1}},
+      "show_connection_address": {"type": "bool", "description": "详情显示连接地址", "default": false}
+    }
+  },
+  "webhook": {
+    "description": "Webhook",
+    "type": "object",
+    "items": {
+      "enabled": {"type": "bool", "description": "启用 Webhook", "default": false},
+      "host": {"type": "string", "description": "监听地址", "default": "127.0.0.1"},
+      "port": {"type": "int", "description": "监听端口", "default": 8899, "slider": {"min": 1, "max": 65535, "step": 1}},
+      "path": {"type": "string", "description": "通知路径", "default": "/"},
+      "token": {
+        "type": "string",
+        "description": "Bearer token（启用后留空自动生成）",
+        "default": ""
+      },
+      "target_umos": {"type": "list", "description": "通知目标 UMO", "items": {"type": "string"}, "default": []}
+    }
+  }
+}
