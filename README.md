@@ -77,6 +77,8 @@
 - **`timezone`**：时间显示时区（例如 `Asia/Shanghai`，留空则继承 AstrBot 系统时区）
 - **`page_size`**：概览图每页最大展示探针数（默认 `10`）
 - **`show_connection_address`**：单机详情长图中是否显示连接 IP 与端口（默认 `false` 隐藏以保护隐私）
+- **`font_path`**：可选自定义字体文件路径，留空使用插件自带字体。支持 Pillow 可加载的 TTF、TTC 或 OTF
+  文件；容器部署时应填写容器内可访问的路径
 
 ### 4. `webhook`（告警推送）
 - **`enabled`**：是否启用 Webhook 接收服务（默认 `false`）
@@ -190,3 +192,6 @@ generic://127.0.0.1:8899/?template=json&disabletls=yes&@Authorization=Bearer%20<
 ## 📄 开源协议
 
 本项目采用 [GNU Affero General Public License v3.0 (AGPL-3.0)](LICENSE) 开源协议。
+
+随包分发的 `NotoSansSC-Regular.otf` 来自 Noto Sans CJK 2.004，使用
+[SIL Open Font License 1.1](core/assets/fonts/OFL.txt)。

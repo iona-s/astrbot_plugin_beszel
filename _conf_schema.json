@@ -28,7 +28,11 @@
     "description": "时间显示",
     "type": "object",
     "items": {
-      "timezone": {"type": "string", "description": "显示时区（留空继承 AstrBot）", "default": ""}
+      "timezone": {
+        "type": "string",
+        "description": "显示时区（留空继承 AstrBot）",
+        "hint": "IANA 时区名称，例如 Asia/Shanghai",
+        "default": ""}
     }
   },
   "render": {
@@ -36,7 +40,13 @@
     "type": "object",
     "items": {
       "page_size": {"type": "int", "description": "概览每页系统数", "default": 10, "slider": {"min": 4, "max": 20, "step": 1}},
-      "show_connection_address": {"type": "bool", "description": "详情显示连接地址", "default": false}
+      "show_connection_address": {"type": "bool", "description": "详情显示连接地址", "default": false},
+      "font_path": {
+        "type": "string",
+        "description": "自定义字体文件路径（留空使用内置字体）",
+        "hint": "填写 AstrBot 运行环境内可访问的 TTF、TTC 或 OTF 字体文件路径；加载失败时回退到内置字体",
+        "default": ""
+      }
     }
   },
   "webhook": {

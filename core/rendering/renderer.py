@@ -3,14 +3,17 @@
 from __future__ import annotations
 
 import asyncio
+import colorsys
 import io
 import json
 import math
 from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime, tzinfo
+from pathlib import Path
 from typing import Any
 
+from astrbot.api import logger
 from PIL import Image, ImageDraw, ImageFont
 
 from ..beszel.models import SystemDetailView, SystemHistoryView, SystemSummary
@@ -31,6 +34,13 @@ from .style import BeszelStyle
 class BeszelRenderer:
     """Render internal models to in-memory PNG bytes matching Beszel 0.18.8 visual style."""
 
+    _bundled_font_path = (
+        Path(__file__).resolve().parent.parent
+        / "assets"
+        / "fonts"
+        / "NotoSansSC-Regular.otf"
+    )
+
     def __init__(
         self,
         style: BeszelStyle | None = None,
@@ -38,11 +48,17 @@ class BeszelRenderer:
         plugin_name: str = "Beszel",
         show_connection_address: bool = False,
         display_timezone: tzinfo | None = None,
+        font_path: str | Path | None = None,
     ) -> None:
         self.style = style or BeszelStyle()
         self.plugin_name = plugin_name
         self.show_connection_address = show_connection_address
         self.display_timezone = display_timezone or resolve_timezone("")
+        self._font_warning_logged = False
+        self._font_path = self._select_font_path(font_path)
+        self._font_cache: dict[
+            tuple[int, bool], ImageFont.FreeTypeFont | ImageFont.ImageFont
+        ] = {}
 
     async def render_overview(
         self, systems: list[SystemSummary], page_size: int = 10
@@ -59,32 +75,89 @@ class BeszelRenderer:
     async def render_history(self, view: SystemHistoryView) -> bytes:
         return await asyncio.to_thread(self._render_history, view)
 
+    def _select_font_path(self, configured_path: str | Path | None) -> Path | None:
+        if configured_path and str(configured_path).strip():
+            custom_path = Path(str(configured_path).strip()).expanduser()
+            if self._font_file_loads(custom_path):
+                return custom_path
+            logger.warning(
+                "Configured render.font_path could not be loaded; using bundled font"
+            )
+
+        if self._font_file_loads(self._bundled_font_path):
+            return self._bundled_font_path
+
+        logger.warning(
+            "Bundled font could not be loaded; image text may contain missing glyphs"
+        )
+        self._font_warning_logged = True
+        return None
+
+    @staticmethod
+    def _font_file_loads(path: str | Path) -> bool:
+        try:
+            ImageFont.truetype(path, 12)
+        except (OSError, ValueError):
+            return False
+        return True
+
+    @staticmethod
+    def _hsl_color(
+        hue: float, saturation: float, lightness: float
+    ) -> tuple[int, int, int]:
+        red, green, blue = colorsys.hls_to_rgb(
+            (hue % 360.0) / 360.0,
+            lightness / 100.0,
+            saturation / 100.0,
+        )
+        return tuple(round(channel * 255) for channel in (red, green, blue))
+
+    @classmethod
+    def _temperature_series(
+        cls,
+        points_by_sensor: dict[str, list[tuple[datetime, float]]],
+    ) -> list[HistoryChartSeries]:
+        sorted_sensors = sorted(
+            points_by_sensor.items(),
+            key=lambda item: -sum(value for _, value in item[1]),
+        )
+        sensor_count = len(sorted_sensors)
+        return [
+            HistoryChartSeries(
+                name=name,
+                points=points,
+                color=cls._hsl_color(
+                    index * 360.0 / sensor_count,
+                    60.0,
+                    55.0,
+                ),
+            )
+            for index, (name, points) in enumerate(sorted_sensors)
+        ]
+
     def _font(
         self, size: int, *, bold: bool = False
     ) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
-        bold_candidates = (
-            "C:/Windows/Fonts/msyhbd.ttc",
-            "C:/Windows/Fonts/segoeuib.ttf",
-            "C:/Windows/Fonts/arialbd.ttf",
-            "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc",
-            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
-        )
-        regular_candidates = (
-            "C:/Windows/Fonts/msyh.ttc",
-            "C:/Windows/Fonts/segoeui.ttf",
-            "C:/Windows/Fonts/arial.ttf",
-            "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
-            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-        )
-        candidates = (
-            bold_candidates + regular_candidates if bold else regular_candidates
-        )
-        for path in candidates:
+        cache_key = (size, bold)
+        if cached := self._font_cache.get(cache_key):
+            return cached
+
+        if self._font_path:
             try:
-                return ImageFont.truetype(path, size)
-            except OSError:
-                continue
-        return ImageFont.load_default()
+                font = ImageFont.truetype(self._font_path, size)
+                self._font_cache[cache_key] = font
+                return font
+            except (OSError, ValueError):
+                pass
+
+        if not self._font_warning_logged:
+            logger.warning(
+                "Selected font became unavailable; image text may contain missing glyphs"
+            )
+            self._font_warning_logged = True
+        font = ImageFont.load_default()
+        self._font_cache[cache_key] = font
+        return font
 
     def _canvas(self, height: int) -> tuple[Image.Image, ImageDraw.ImageDraw]:
         image = Image.new(
@@ -176,10 +249,11 @@ class BeszelRenderer:
         bold: bool = False,
     ) -> int:
         font = self._font(font_size, bold=bold)
-        text_len = draw.textlength(text, font=font)
+        bbox = font.getbbox(text)
+        text_w = bbox[2] - bbox[0]
         pad_x, pad_y = 10, 4
         left, top = xy
-        right = int(left + text_len + pad_x * 2)
+        right = int(left + text_w + pad_x * 2)
         bottom = int(top + font_size + pad_y * 2 + 2)
         badge_h = bottom - top
         self._draw_rounded_rect(
@@ -190,8 +264,12 @@ class BeszelRenderer:
             outline=border or self.style.border,
             width=1,
         )
+        mid_x = (left + right) / 2.0
+        mid_y = (top + bottom) / 2.0
+        txt_x = mid_x - (bbox[0] + bbox[2]) / 2.0
+        txt_y = mid_y - (bbox[1] + bbox[3]) / 2.0
         draw.text(
-            (left + pad_x, top + pad_y),
+            (txt_x, txt_y),
             text,
             fill=fg or self.style.muted,
             font=font,
@@ -209,10 +287,11 @@ class BeszelRenderer:
         halo_color = self.style.status_halo(status)
         text = text_override or status.upper()
         font = self._font(13, bold=True)
-        text_len = draw.textlength(text, font=font)
+        bbox = font.getbbox(text)
+        text_w = bbox[2] - bbox[0]
         left, top = xy
         pad_x, pad_y = 10, 4
-        right = int(left + text_len + pad_x * 2 + 14)
+        right = int(left + text_w + pad_x * 2 + 14)
         bottom = int(top + 13 + pad_y * 2 + 2)
         pill_h = bottom - top
         self._draw_rounded_rect(
@@ -223,13 +302,14 @@ class BeszelRenderer:
             outline=status_color,
             width=1,
         )
-        dot_center_y = (top + bottom) // 2
+        mid_y = (top + bottom) / 2.0
         draw.ellipse(
-            (left + pad_x, dot_center_y - 4, left + pad_x + 8, dot_center_y + 4),
+            (left + pad_x, int(mid_y - 4), left + pad_x + 8, int(mid_y + 4)),
             fill=status_color,
         )
+        txt_y = mid_y - (bbox[1] + bbox[3]) / 2.0
         draw.text(
-            (left + pad_x + 14, top + pad_y),
+            (left + pad_x + 14, txt_y),
             text,
             fill=status_color,
             font=font,
@@ -277,18 +357,27 @@ class BeszelRenderer:
     ) -> int:
         left = 48
         top = 36
+        badge_w, badge_h = 68, 24
         brand_font = self._font(12, bold=True)
         self._draw_rounded_rect(
             draw._image,
-            (left, top, left + 68, top + 24),
+            (left, top, left + badge_w, top + badge_h),
             radius=6,
             fill=self.style.chart_cpu,
         )
-        draw.text((left + 10, top + 4), "BESZEL", fill=(255, 255, 255), font=brand_font)
+        b_bbox = brand_font.getbbox("BESZEL")
+        b_x = left + (badge_w - (b_bbox[0] + b_bbox[2])) / 2.0
+        b_y = top + (badge_h - (b_bbox[1] + b_bbox[3])) / 2.0
+        draw.text((b_x, b_y), "BESZEL", fill=(255, 255, 255), font=brand_font)
 
         title_font = self._font(26, bold=True)
+        t_bbox = title_font.getbbox(title)
+        t_y = (top + badge_h / 2.0) - (t_bbox[1] + t_bbox[3]) / 2.0
         draw.text(
-            (left + 80, top - 2), title, fill=self.style.foreground, font=title_font
+            (left + badge_w + 12, t_y),
+            title,
+            fill=self.style.foreground,
+            font=title_font,
         )
 
         next_x = left
@@ -559,8 +648,11 @@ class BeszelRenderer:
         name_max_w = right - status_right - 20 - v_badge_width - 16
         name_font = self._font(17, bold=True)
         name = self._ellipsize(draw, system.name, name_font, max(120, name_max_w))
+        n_bbox = name_font.getbbox(name)
+        pill_mid_y = header_y + 11.5
+        n_y = pill_mid_y - (n_bbox[1] + n_bbox[3]) / 2.0
         draw.text(
-            (status_right + 10, header_y + 1),
+            (status_right + 10, n_y),
             name,
             fill=self.style.foreground if is_online else self.style.muted,
             font=name_font,
@@ -1465,11 +1557,12 @@ class BeszelRenderer:
 
             self._card(draw, (c_left, c_top, c_right, c_bottom), radius=12)
 
+            t_font = self._font(14, bold=True)
             draw.text(
                 (c_left + 16, c_top + 13),
                 card.title,
                 fill=self.style.foreground,
-                font=self._font(14, bold=True),
+                font=t_font,
             )
             draw.text(
                 (c_left + 16, c_top + 32),
@@ -1484,12 +1577,17 @@ class BeszelRenderer:
                 cur_val = vals[-1] if vals else 0.0
                 cur_str = self._format_history_metric_value(cur_val, card.unit_type)
                 b_text = f"当前: {cur_str}"
-                b_len = draw.textlength(b_text, font=self._font(11))
+                cur_font = self._font(11)
+                b_len = draw.textlength(b_text, font=cur_font)
+                t_bbox = t_font.getbbox(card.title)
+                c_bbox = cur_font.getbbox(b_text)
+                title_baseline = (c_top + 13) + t_bbox[3]
+                cur_y = title_baseline - c_bbox[3]
                 draw.text(
-                    (c_right - 16 - b_len, c_top + 14),
+                    (c_right - 16 - b_len, cur_y),
                     b_text,
                     fill=self.style.subtle,
-                    font=self._font(11),
+                    font=cur_font,
                 )
 
             has_legend = len(card.series_list) > 1
@@ -2074,16 +2172,11 @@ class BeszelRenderer:
                         if t_val is not None:
                             t_pts_map.setdefault(str(k), []).append((c, t_val))
         if t_pts_map:
-            t_series = []
-            for s_name, pts in sorted(t_pts_map.items()):
-                t_series.append(
-                    HistoryChartSeries(name=s_name, points=pts, color=(249, 115, 22))
-                )
             cards.append(
                 HistoryChartCard(
                     title="温度",
                     subtitle="系统传感器的温度",
-                    series_list=t_series,
+                    series_list=cls._temperature_series(t_pts_map),
                     unit_type="temp",
                 )
             )

@@ -70,6 +70,7 @@ class BeszelPlugin(Star):
             plugin_name="astrbot_plugin_beszel",
             show_connection_address=self.config.render.show_connection_address,
             display_timezone=self.display_timezone,
+            font_path=self.config.render.font_path,
         )
         self.webhook_server: WebhookServer | None = None
 

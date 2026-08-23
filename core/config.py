@@ -71,6 +71,7 @@ class DisplayConfig:
 class RenderConfig:
     page_size: int = 10
     show_connection_address: bool = False
+    font_path: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -213,6 +214,7 @@ class PluginConfig:
                 show_connection_address=bool(
                     render_raw.get("show_connection_address", False)
                 ),
+                font_path=_opt_str(render_raw.get("font_path")),
             ),
             webhook=WebhookConfig(
                 enabled=enabled,
