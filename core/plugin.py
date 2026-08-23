@@ -1,6 +1,5 @@
 """AstrBot registration and lifecycle coordination."""
 
-import re
 from dataclasses import dataclass
 from typing import Literal
 
@@ -18,7 +17,7 @@ from .access import AccessPolicy
 from .beszel.client import BeszelClient
 from .beszel.models import HistoryRange
 from .beszel.service import QueryService
-from .config import PluginConfig
+from .config import SUPPORTED_HISTORY_RANGES, PluginConfig
 from .errors import BeszelPluginError
 from .formatters import format_system_list, resolve_timezone
 from .rendering import BeszelRenderer
@@ -51,13 +50,8 @@ class BeszelPlugin(Star):
             config or {}, astrbot_timezone=_astrbot_timezone(context)
         )
         self.display_timezone = resolve_timezone(self.config.display.timezone)
-        if config is not None and self.config.webhook.token:
-            webhook_raw = config.get("webhook", {})
-            if isinstance(webhook_raw, dict) and not webhook_raw.get("token"):
-                webhook_raw["token"] = self.config.webhook.token
-                save_config = getattr(config, "save_config", None)
-                if callable(save_config):
-                    save_config()
+        if config is not None and self.config.webhook.token_generated:
+            self._persist_generated_webhook_token(config)
         self.client = BeszelClient(self.config.beszel)
         self.access = AccessPolicy(self.config.access)
         self.service = QueryService(
@@ -73,6 +67,32 @@ class BeszelPlugin(Star):
             font_path=self.config.render.font_path,
         )
         self.webhook_server: WebhookServer | None = None
+
+    def _persist_generated_webhook_token(self, config: AstrBotConfig) -> None:
+        """Persist a freshly generated webhook token back to the config.
+
+        Warn instead of letting a save failure break plugin construction; an
+        unsaved token changes on every restart. Never log the token value.
+        """
+        failure_message = (
+            "Generated webhook token could not be saved; it changes on every "
+            "restart and notifiers will get HTTP 401. Set webhook.token "
+            "manually to keep it stable."
+        )
+        webhook_raw = config.get("webhook", {})
+        save_config = getattr(config, "save_config", None)
+        if not isinstance(webhook_raw, dict) or not callable(save_config):
+            logger.warning(failure_message)
+            return
+        webhook_raw["token"] = self.config.webhook.token
+        try:
+            save_config()
+        except Exception:
+            logger.warning(failure_message, exc_info=True)
+            return
+        logger.info(
+            "Generated a new webhook Bearer token and saved it to the plugin config"
+        )
 
     async def initialize(self) -> None:
         if self.config.webhook.enabled:
@@ -108,6 +128,19 @@ class BeszelPlugin(Star):
             )
         if kind == "overview":
             systems = await self.service.get_overview()
+            if not systems:
+                return QueryOutput(
+                    [
+                        [
+                            Plain(
+                                format_system_list(
+                                    systems, timezone=self.display_timezone
+                                )
+                            )
+                        ]
+                    ],
+                    "Sent Beszel overview: 0 systems.",
+                )
             images = await self.renderer.render_overview(
                 systems, self.config.render.page_size
             )
@@ -280,11 +313,14 @@ class BeszelPlugin(Star):
 
     @staticmethod
     def _history_arguments(query: str) -> tuple[str, str | None]:
+        """Split ``<name-or-id> [range]``, treating only a trailing supported
+        range as the range so system names may end in other duration words."""
         parts = query.strip().split()
         if not parts:
             return "", None
-        if len(parts) > 1 and re.fullmatch(r"\d+[mhdw]", parts[-1].casefold()):
-            return " ".join(parts[:-1]), parts[-1].casefold()
+        tail = parts[-1].casefold()
+        if len(parts) > 1 and tail in SUPPORTED_HISTORY_RANGES:
+            return " ".join(parts[:-1]), tail
         return " ".join(parts), None
 
 

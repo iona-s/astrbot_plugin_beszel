@@ -22,10 +22,11 @@ from .formatters import (
     bytes_iec,
     format_bandwidth,
     gb_iec,
+    gb_to_bytes,
     mb_iec,
+    mib_rate_to_bytes,
     percent,
     safe_float,
-    uptime,
     uptime_cn,
 )
 from .style import BeszelStyle
@@ -63,10 +64,11 @@ class BeszelRenderer:
     async def render_overview(
         self, systems: list[SystemSummary], page_size: int = 10
     ) -> list[bytes]:
+        """Render one page per ``page_size`` systems; empty input yields no pages."""
         pages = [
             systems[index : index + page_size]
             for index in range(0, len(systems), page_size)
-        ] or [[]]
+        ]
         return await asyncio.to_thread(self._render_pages, pages)
 
     async def render_status(self, view: SystemDetailView) -> bytes:
@@ -463,7 +465,7 @@ class BeszelRenderer:
         self, info: dict[str, Any]
     ) -> list[tuple[str, float | None, str]]:
         efs_dict: dict[str, Any] = {}
-        raw_efs = info.get("efs") or info.get("extra_filesystems") or info.get("disks")
+        raw_efs = BeszelRenderer._first(info, "efs", "extra_filesystems", "disks")
         if isinstance(raw_efs, str):
             try:
                 raw_efs = json.loads(raw_efs)
@@ -555,7 +557,7 @@ class BeszelRenderer:
     def _get_overview_card_height(self, system: SystemSummary) -> int:
         info = system.info
         efs_count = len(self._extract_efs_items(info))
-        gpu_count = len(self._extract_gpus(info.get("g") or info.get("gpu")))
+        gpu_count = len(self._extract_gpus(self._first(info, "g", "gpu")))
         total_bars = 3 + gpu_count + efs_count
         num_bar_rows = math.ceil(total_bars / 2)
         has_services = self._first(info, "sv", "s", "services") is not None
@@ -577,7 +579,7 @@ class BeszelRenderer:
 
             row_heights = [
                 max(self._get_overview_card_height(s) for s in row) for row in rows
-            ] or [200]
+            ]
             height = 136 + sum(row_heights) + max(0, len(rows) - 1) * gap + 48
             image, draw = self._canvas(height)
 
@@ -664,7 +666,7 @@ class BeszelRenderer:
         meta_items: list[str] = []
         up_val = self._first(info, "u", "uptime", "up")
         if up_val is not None and is_online:
-            up_str = uptime(up_val)
+            up_str = uptime_cn(up_val)
             if up_str != "N/A":
                 meta_items.append(up_str)
 
@@ -677,7 +679,7 @@ class BeszelRenderer:
         if is_online and b_str != "N/A":
             meta_items.append(f"网络: {b_str}")
 
-        la_str = self._extract_load_avg(info.get("la"))
+        la_str = self._extract_load_avg(self._first(info, "la"))
         if la_str and is_online:
             meta_items.append(f"负载: {la_str}")
 
@@ -751,7 +753,7 @@ class BeszelRenderer:
             mem_sub = f"{gb_iec(mem_used)}"
         bars.append(("内存", mem_pct, percent(mem_pct), mem_sub, "mem"))
 
-        for gpu in self._extract_gpus(info.get("g") or info.get("gpu")):
+        for gpu in self._extract_gpus(self._first(info, "g", "gpu")):
             bars.append(
                 (
                     f"显卡 ({gpu['name']})" if gpu["name"] != "GPU" else "GPU",
@@ -884,7 +886,7 @@ class BeszelRenderer:
         disk_used = safe_float(stats.get("du"))
         disk_total = safe_float(stats.get("d"))
 
-        b_val = stats.get("b") or stats.get("bandwidth")
+        b_val = self._first(stats, "b", "bandwidth")
         rx_speed, tx_speed, total_b_speed = None, None, None
         if isinstance(b_val, (list, tuple)) and len(b_val) >= 2:
             tx_speed = safe_float(b_val[0])
@@ -894,10 +896,10 @@ class BeszelRenderer:
         else:
             total_b_speed = safe_float(b_val)
 
-        la_str = self._extract_load_avg(
-            stats.get("la")
-            or (view.summary.info.get("la") if view.summary.info else None)
-        )
+        la_raw = self._first(stats, "la")
+        if la_raw is None and view.summary.info:
+            la_raw = self._first(view.summary.info, "la")
+        la_str = self._extract_load_avg(la_raw)
 
         # 2. Extract Disks
         all_disks: list[tuple[str, float | None, str]] = []
@@ -914,10 +916,10 @@ class BeszelRenderer:
             all_disks.append((f"磁盘 ({disk_name})", d_pct, d_sub))
 
         # 3. Extract GPUs & Dedicated GPU Card
-        gpus = self._extract_gpus(
-            stats.get("g")
-            or (view.summary.info.get("g") if view.summary.info else None)
-        )
+        g_raw = self._first(stats, "g")
+        if g_raw is None and view.summary.info:
+            g_raw = self._first(view.summary.info, "g")
+        gpus = self._extract_gpus(g_raw)
         gpu_names_lower = {gpu["name"].casefold() for gpu in gpus}
 
         # 4. Extract Hardware Sensors (Temperatures, Fans, Battery)
@@ -1004,7 +1006,7 @@ class BeszelRenderer:
                     ),
                     (
                         "系统运行时间",
-                        uptime(view.summary.info.get("u"))
+                        uptime_cn(view.summary.info.get("u"))
                         if view.summary.info and view.summary.info.get("u") is not None
                         else "N/A",
                     ),
@@ -1968,7 +1970,7 @@ class BeszelRenderer:
         for _, s in valid_points:
             m_t = safe_float(s.get("m"))
             if m_t is not None and m_t > 0:
-                total_ram_bytes = m_t if m_t >= 100_000 else m_t * (1024**3)
+                total_ram_bytes = gb_to_bytes(m_t)
                 break
 
         for c, s in valid_points:
@@ -1977,8 +1979,7 @@ class BeszelRenderer:
             m_total = safe_float(s.get("m"))
             if total_ram_bytes is not None:
                 if m_u is not None:
-                    u_bytes = m_u if m_u >= 100_000 else m_u * (1024**3)
-                    mem_pts.append((c, min(u_bytes, total_ram_bytes)))
+                    mem_pts.append((c, min(gb_to_bytes(m_u), total_ram_bytes)))
                 elif m_p is not None:
                     mem_pts.append((c, (m_p / 100.0) * total_ram_bytes))
             else:
@@ -2007,7 +2008,7 @@ class BeszelRenderer:
         for _, s in valid_points:
             d_t = safe_float(s.get("d"))
             if d_t is not None and d_t > 0:
-                total_root_disk_bytes = d_t if d_t >= 100_000 else d_t * (1024**3)
+                total_root_disk_bytes = gb_to_bytes(d_t)
                 break
 
         for c, s in valid_points:
@@ -2016,8 +2017,7 @@ class BeszelRenderer:
             d_total = safe_float(s.get("d"))
             if total_root_disk_bytes is not None:
                 if d_u is not None:
-                    du_bytes = d_u if d_u >= 100_000 else d_u * (1024**3)
-                    disk_pts.append((c, min(du_bytes, total_root_disk_bytes)))
+                    disk_pts.append((c, min(gb_to_bytes(d_u), total_root_disk_bytes)))
                 elif d_p is not None:
                     disk_pts.append((c, (d_p / 100.0) * total_root_disk_bytes))
             else:
@@ -2052,12 +2052,12 @@ class BeszelRenderer:
                 r_bytes = safe_float(dio[0]) or 0.0
                 w_bytes = safe_float(dio[1]) or 0.0
             else:
-                dr = safe_float(s.get("dr") or s.get("r"))
-                dw = safe_float(s.get("dw") or s.get("w"))
+                dr = safe_float(cls._first(s, "dr", "r"))
+                dw = safe_float(cls._first(s, "dw", "w"))
                 if dr is not None:
-                    r_bytes = dr * (1024**2) if 0 < dr < 1000.0 else dr
+                    r_bytes = mib_rate_to_bytes(dr)
                 if dw is not None:
-                    w_bytes = dw * (1024**2) if 0 < dw < 1000.0 else dw
+                    w_bytes = mib_rate_to_bytes(dw)
 
             dr_pts.append((c, r_bytes))
             dw_pts.append((c, w_bytes))
@@ -2081,7 +2081,7 @@ class BeszelRenderer:
 
         rx_pts, tx_pts = [], []
         for c, s in valid_points:
-            b = s.get("b") or s.get("bandwidth")
+            b = cls._first(s, "b", "bandwidth")
             if isinstance(b, (list, tuple)) and len(b) >= 2:
                 tx_val = safe_float(b[0])
                 rx_val = safe_float(b[1])
@@ -2116,7 +2116,7 @@ class BeszelRenderer:
 
         la1_pts, la5_pts, la15_pts = [], [], []
         for c, s in valid_points:
-            la = s.get("la") or s.get("load")
+            la = cls._first(s, "la", "load")
             if isinstance(la, (list, tuple)):
                 for index, bucket in enumerate((la1_pts, la5_pts, la15_pts)):
                     if len(la) > index:
@@ -2183,13 +2183,13 @@ class BeszelRenderer:
 
         gpu_names: set[str] = set()
         for _, s in valid_points:
-            for gpu in cls._extract_gpus(s.get("g") or s.get("gpu")):
+            for gpu in cls._extract_gpus(cls._first(s, "g", "gpu")):
                 gpu_names.add(gpu["name"])
         for gpu_name in sorted(gpu_names):
             g_u_pts, g_vram_pts, g_pwr_pts = [], [], []
             total_vram_bytes: float | None = None
             for c, s in valid_points:
-                for gpu in cls._extract_gpus(s.get("g") or s.get("gpu")):
+                for gpu in cls._extract_gpus(cls._first(s, "g", "gpu")):
                     if gpu["name"] == gpu_name:
                         g_u_pts.append((c, gpu["usage"]))
                         if (
@@ -2272,9 +2272,9 @@ class BeszelRenderer:
                         d_u = safe_float(d_data.get("du"))
                         d_t = safe_float(d_data.get("d"))
                         if d_u is not None and d_t is not None and d_t > 0:
-                            d_pts.append((c, d_u * (1024**3)))
+                            d_pts.append((c, gb_to_bytes(d_u)))
                             if total_disk_bytes is None:
-                                total_disk_bytes = d_t * (1024**3)
+                                total_disk_bytes = gb_to_bytes(d_t)
                         else:
                             d_p = safe_float(d_data.get("dp"))
                             if d_p is not None:
@@ -2289,18 +2289,14 @@ class BeszelRenderer:
                         else:
                             r_val = safe_float(d_data.get("r"))
                             if r_val is not None:
-                                r_bytes = (
-                                    r_val * (1024**2) if 0 < r_val < 1000.0 else r_val
-                                )
+                                r_bytes = mib_rate_to_bytes(r_val)
 
                         if wb_val is not None:
                             w_bytes = wb_val
                         else:
                             w_val = safe_float(d_data.get("w"))
                             if w_val is not None:
-                                w_bytes = (
-                                    w_val * (1024**2) if 0 < w_val < 1000.0 else w_val
-                                )
+                                w_bytes = mib_rate_to_bytes(w_val)
 
                         d_rb_pts.append((c, r_bytes))
                         d_wb_pts.append((c, w_bytes))

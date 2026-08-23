@@ -82,6 +82,8 @@ class WebhookConfig:
     path: str = "/"
     token: str = field(default="", repr=False)
     target_umos: tuple[str, ...] = ()
+    # True when ``token`` was generated here and still needs to be persisted.
+    token_generated: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -182,8 +184,10 @@ class PluginConfig:
             path = "/"
         target_umos = _string_items(webhook_raw.get("target_umos", []))
         token = _opt_text(webhook_raw.get("token"))
+        token_generated = False
         if enabled and not token and generate_webhook_token:
             token = secrets.token_urlsafe(32)
+            token_generated = True
         if enabled and not token:
             logger.error(
                 "webhook.token is required when enabled; webhook service will be disabled"
@@ -223,5 +227,6 @@ class PluginConfig:
                 path=path,
                 token=token,
                 target_umos=target_umos,
+                token_generated=token_generated,
             ),
         )

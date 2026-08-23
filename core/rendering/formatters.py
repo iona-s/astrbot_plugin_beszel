@@ -49,20 +49,6 @@ def bytes_iec(value: object) -> str:
     return f"{current:.1f} {units[index]}"
 
 
-def uptime(value: object) -> str:
-    try:
-        seconds = max(0, int(float(value)))  # type: ignore[arg-type]
-    except (TypeError, ValueError, OverflowError):
-        return "N/A"
-    units = (("d", 86400), ("h", 3600), ("m", 60), ("s", 1))
-    parts: list[str] = []
-    for label, size in units:
-        count, seconds = divmod(seconds, size)
-        if count and len(parts) < 2:
-            parts.append(f"{count}{label}")
-    return " ".join(parts) or "0s"
-
-
 def uptime_cn(value: object) -> str:
     try:
         seconds = max(0, int(float(value)))  # type: ignore[arg-type]
@@ -84,6 +70,26 @@ def uptime_cn(value: object) -> str:
     return f"{secs} 秒"
 
 
+def gb_to_bytes(value: float) -> float:
+    """Convert a Beszel capacity field to bytes.
+
+    Capacity fields (``m``/``mu``/``d``/``du``, both root and EFS entries) are
+    reported in GiB; values at or above 100_000 (>=100 TiB) are evidently raw
+    bytes and pass through unchanged.
+    """
+    return value if value >= 100_000 else value * (1024**3)
+
+
+def mib_rate_to_bytes(value: float) -> float:
+    """Convert a legacy Beszel throughput field to bytes/s.
+
+    Legacy disk I/O rates (``r``/``w``/``dr``/``dw``) are reported in MiB/s;
+    values at or above 1000 (>=1 GiB/s) are evidently raw bytes/s and pass
+    through unchanged. Zero and negative rates mean "no traffic" and are kept.
+    """
+    return value * (1024**2) if 0 < value < 1000.0 else value
+
+
 def gb_iec(value: object) -> str:
     if value is None or isinstance(value, bool):
         return "N/A"
@@ -91,9 +97,7 @@ def gb_iec(value: object) -> str:
         gb = float(value)
     except (TypeError, ValueError):
         return "N/A"
-    if gb >= 100_000:
-        return bytes_iec(gb)
-    return bytes_iec(gb * (1024**3))
+    return bytes_iec(gb_to_bytes(gb))
 
 
 def mb_iec(value: object) -> str:
