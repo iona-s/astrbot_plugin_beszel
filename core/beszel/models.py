@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 from enum import StrEnum
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from ..errors import BeszelProtocolError, InvalidHistoryRangeError
+from ..errors import InvalidHistoryRangeError
 
 
 class HistoryRange(StrEnum):
@@ -199,18 +199,3 @@ class SystemHistoryView(BeszelModel):
     range: HistoryRange
     points: list[SystemHistoryPoint] = Field(default_factory=list)
     has_gaps: bool = False
-
-
-def parse_datetime(value: Any, *, field_name: str = "created") -> datetime:
-    """Parse an ISO timestamp and normalize it to an aware UTC datetime."""
-    if not isinstance(value, str):
-        raise BeszelProtocolError(
-            f"Beszel {field_name} timestamp is missing or invalid"
-        )
-    try:
-        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
-    except ValueError as exc:
-        raise BeszelProtocolError(f"Beszel {field_name} timestamp is invalid") from exc
-    if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=UTC)
-    return parsed.astimezone(UTC)

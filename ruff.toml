@@ -31,5 +31,4 @@ ignore = [
 ]
 
 [lint.per-file-ignores]
-"strategy.py" = ["B027"]
 "tests/**/*.py" = ["S101"]

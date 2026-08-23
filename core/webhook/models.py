@@ -33,7 +33,6 @@ class NotificationState(StrEnum):
 @dataclass(frozen=True, slots=True)
 class HistoryAttachmentRequest:
     system_id: str
-    range: str = "1h"
 
 
 @dataclass(frozen=True, slots=True)

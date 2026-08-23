@@ -1,4 +1,4 @@
-"""Small text formatters used before the image renderer is available."""
+"""Shared status classification, timezone, and system-list text formatting."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ from datetime import UTC, datetime, tzinfo
 from typing import Literal
 from zoneinfo import ZoneInfo
 
-from .beszel.models import SystemDetailView, SystemHistoryView, SystemSummary
+from .beszel.models import SystemSummary
 
 StatusState = Literal["up", "down", "unknown"]
 
@@ -58,15 +58,3 @@ def format_system_list(
             line += f" 上次在线时间：{updated}"
         lines.append(line)
     return "\n".join(lines)
-
-
-def format_overview_text(systems: list[SystemSummary]) -> str:
-    return f"已获取 {len(systems)} 个探针概览。"
-
-
-def format_detail_text(view: SystemDetailView) -> str:
-    return f"已获取探针 {view.summary.name} 的当前详情。"
-
-
-def format_history_text(view: SystemHistoryView) -> str:
-    return f"已获取探针 {view.summary.name} 的 {view.range.value} 历史，共 {len(view.points)} 个采样点。"

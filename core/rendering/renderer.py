@@ -2417,29 +2417,6 @@ class BeszelRenderer:
 
         return cards
 
-    @classmethod
-    def _series(cls, points: Iterable[Any]) -> dict[str, list[tuple[datetime, float]]]:
-        cards = cls._build_history_chart_cards(points)
-        result: dict[str, list[tuple[datetime, float]]] = {}
-        for card in cards:
-            for s in card.series_list:
-                result[f"{card.title} ({s.name})"] = s.points
-            if "CPU" in card.title and card.series_list:
-                result["CPU"] = card.series_list[0].points
-            elif "内存" in card.title and card.series_list:
-                result["内存"] = card.series_list[0].points
-            elif "磁盘使用" in card.title and card.series_list:
-                result.setdefault("磁盘", card.series_list[0].points)
-            elif "带宽" in card.title and card.series_list:
-                result.setdefault("网络", card.series_list[0].points)
-            elif "温度" in card.title and card.series_list:
-                result.setdefault("温度", card.series_list[0].points)
-            elif "Swap" in card.title and card.series_list:
-                result.setdefault("Swap", card.series_list[0].points)
-            elif "GPU" in card.title and card.series_list:
-                result.setdefault("GPU", card.series_list[0].points)
-        return result
-
     @staticmethod
     def _extract_metric_float(value: Any) -> float | None:
         if value is None or isinstance(value, bool):
