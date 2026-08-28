@@ -77,7 +77,7 @@
 - **`timezone`**：时间显示时区（例如 `Asia/Shanghai`，留空则继承 AstrBot 系统时区）
 - **`page_size`**：概览图每页最大展示探针数（默认 `10`）
 - **`show_connection_address`**：单机详情长图中是否显示连接 IP 与端口（默认 `false` 隐藏以保护隐私）
-- **`font_path`**：可选自定义字体文件路径，留空使用插件自带字体。支持 Pillow 可加载的 TTF、TTC 或 OTF
+- **`font_path`**：可选自定义字体文件路径，留空使用插件自带字体。
   文件；容器部署时应填写容器内可访问的路径
 
 ### 4. `webhook`（告警推送）
@@ -186,6 +186,16 @@ generic://127.0.0.1:8899/?template=json&disabletls=yes&@Authorization=Bearer%20<
 
 参数 `<name-or-id>` 支持探针名称（如 `PC`、`fnnas`）或 15 位 PocketBase 记录 ID（如 `flkvk9vhj2r2e18`）。若探针名称包含空格，请确保全名匹配。
 </details>
+
+---
+
+## 🙏 致谢
+
+感谢以下优秀的开源项目与社区：
+
+- [AstrBot](https://github.com/AstrBotDevs/AstrBot) - 优雅、强大且易于扩展的多平台大语言模型聊天机器人框架
+- [Beszel](https://github.com/henrygd/beszel) - 轻量、美观的现代化服务器资源与容器监控平台
+- [pytakumi](https://github.com/KimigaiiWuyi/pytakumi) - 高性能、轻量级的本地 HTML/CSS 图像渲染引擎
 
 ---
 

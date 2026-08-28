@@ -19,6 +19,13 @@ from .models import (
 MAX_TEXT_LENGTH = 4000
 _LINK_RE = re.compile(r"https?://[^\s<>\"']+", re.IGNORECASE)
 _SYSTEM_LINK_RE = re.compile(r"/system/([^/?#\s]+)", re.IGNORECASE)
+_HISTORY_SOURCES = frozenset(
+    {
+        NotificationSource.BESZEL,
+        NotificationSource.GENERIC,
+        NotificationSource.SHOUTRRR,
+    }
+)
 
 
 class WebhookPayloadError(ValueError):
@@ -31,6 +38,14 @@ class WebhookPayloadError(ValueError):
     def __init__(self, message: str, *, status: int = 400) -> None:
         super().__init__(message)
         self.status = status
+
+
+def history_requested(notification: NormalizedNotification) -> bool:
+    """Return whether a notification may request Beszel history lookup."""
+    return (
+        notification.safe_metadata.get("send_history") == "true"
+        and notification.source in _HISTORY_SOURCES
+    )
 
 
 def parse_payload(
@@ -73,7 +88,7 @@ def parse_payload(
             title="Webhook 通知",
             message=_truncate(text),
         )
-    return _attach_history(notification, known_systems or {})
+    return attach_history(notification, known_systems or {})
 
 
 def _parse_json(
@@ -164,11 +179,11 @@ def _parse_uptime_kuma(data: dict, *, request_id: str | None) -> NormalizedNotif
     )
 
 
-def _attach_history(
+def attach_history(
     notification: NormalizedNotification, known_systems: Mapping[str, str]
 ) -> NormalizedNotification:
-    send_history = notification.safe_metadata.get("send_history") == "true"
-    if not send_history:
+    """Attach a Beszel history request without reparsing the webhook body."""
+    if not history_requested(notification):
         return notification
     candidate = _system_candidate(
         notification.title,
@@ -178,12 +193,6 @@ def _attach_history(
         allow_title=notification.source is NotificationSource.BESZEL,
     )
     if candidate is None:
-        return notification
-    if notification.source not in {
-        NotificationSource.BESZEL,
-        NotificationSource.GENERIC,
-        NotificationSource.SHOUTRRR,
-    }:
         return notification
     source = NotificationSource.BESZEL
     return NormalizedNotification(

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import math
 
+from .models import ChartUnit
+
 
 def safe_float(value: object) -> float | None:
     """Convert an optional upstream metric to a finite float, or None.
@@ -121,3 +123,47 @@ def format_bandwidth(value: object) -> str:
     if scalar is not None:
         return f"{bytes_iec(scalar)}/s"
     return "N/A"
+
+
+def format_bytes_clean(value: float) -> str:
+    """Format byte amounts cleanly (e.g. 24 GB, 743.7 KB) matching Beszel Hub."""
+    if value <= 0:
+        return "0 B"
+    units = ("B", "KB", "MB", "GB", "TB", "PB")
+    current = float(value)
+    index = 0
+    while current >= 1000 and index < len(units) - 1:
+        current /= 1024
+        index += 1
+    if abs(current - round(current)) < 0.05:
+        return f"{round(current)} {units[index]}"
+    if current >= 100:
+        return f"{current:.0f} {units[index]}"
+    return f"{current:.1f} {units[index]}"
+
+
+def format_chart_value(value: object, unit_type: ChartUnit | str) -> str:
+    """Format one normalized chart value for a label or legend."""
+    numeric = safe_float(value)
+    if numeric is None:
+        return "N/A"
+    unit = unit_type.value if isinstance(unit_type, ChartUnit) else str(unit_type)
+    if unit == ChartUnit.PERCENT.value:
+        if abs(numeric - round(numeric)) < 0.05:
+            return f"{round(numeric)}%"
+        return f"{numeric:.1f}%"
+    if unit == ChartUnit.BYTES.value:
+        return format_bytes_clean(numeric)
+    if unit == ChartUnit.BYTES_PER_SECOND.value:
+        return f"{format_bytes_clean(numeric)}/s"
+    if unit == ChartUnit.WATTS.value:
+        return f"{round(numeric)}W"
+    if unit == ChartUnit.TEMPERATURE.value:
+        if abs(numeric - round(numeric)) < 0.05:
+            return f"{round(numeric)} °C"
+        return f"{numeric:.1f} °C"
+    if unit == ChartUnit.RPM.value:
+        return f"{round(numeric)} RPM"
+    if unit == ChartUnit.LOAD.value:
+        return f"{numeric:.2f}"
+    return f"{numeric:.1f}"

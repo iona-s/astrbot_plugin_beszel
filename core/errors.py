@@ -35,3 +35,7 @@ class AmbiguousSystemError(BeszelPluginError):
 
 class InvalidHistoryRangeError(BeszelPluginError):
     """A history range is outside the supported fixed set."""
+
+
+class RenderingError(BeszelPluginError):
+    """The configured image-rendering backend could not produce a PNG."""

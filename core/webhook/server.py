@@ -8,16 +8,25 @@ from uuid import uuid4
 from aiohttp import web
 from astrbot.api import logger
 
+from ..beszel.service import QueryService
 from ..config import WebhookConfig
 from .delivery import WebhookDelivery
-from .parsers import WebhookPayloadError, parse_payload
+from .parsers import (
+    WebhookPayloadError,
+    attach_history,
+    history_requested,
+    parse_payload,
+)
 
 
 class WebhookServer:
     """Own an aiohttp runner/site inside the plugin event loop."""
 
     def __init__(
-        self, config: WebhookConfig, delivery: WebhookDelivery, service
+        self,
+        config: WebhookConfig,
+        delivery: WebhookDelivery,
+        service: QueryService,
     ) -> None:
         self.config = config
         self.delivery = delivery
@@ -90,23 +99,11 @@ class WebhookServer:
                 notification.title,
                 notification.safe_metadata.get("send_history"),
             )
-            if notification.safe_metadata.get(
-                "send_history"
-            ) == "true" and notification.source.value in {
-                "beszel",
-                "generic",
-                "shoutrrr",
-            }:
+            if history_requested(notification):
                 try:
                     systems = await self.service.list_systems()
                     known_systems = {system.id: system.name for system in systems}
-                    notification = parse_payload(
-                        body,
-                        content_type=content_type,
-                        headers=request.headers,
-                        known_systems=known_systems,
-                        request_id=request_id,
-                    )
+                    notification = attach_history(notification, known_systems)
                     logger.debug(
                         "Webhook request id=%s resolved history target: system_id=%s",
                         request_id,
@@ -130,7 +127,18 @@ class WebhookServer:
             return web.json_response(
                 {"request_id": request_id, "status": "invalid"}, status=status
             )
-        result = await self.delivery.deliver(notification)
+        try:
+            result = await self.delivery.deliver(notification)
+        except Exception as exc:
+            logger.error(
+                "Webhook request id=%s delivery raised %s",
+                request_id,
+                type(exc).__name__,
+                exc_info=True,
+            )
+            return web.json_response(
+                {"request_id": request_id, "status": "delivery_error"}, status=500
+            )
         if result.text_successes == 0:
             logger.debug(
                 "Webhook request id=%s all deliveries failed -> HTTP 502", request_id

@@ -1,0 +1,13 @@
+{% extends "base.html.j2" %}
+{% from "components.html.j2" import history_info_bar %}
+{% from "chart.html.j2" import chart_card %}
+{% block content %}
+{{ history_info_bar(document.header) }}
+<div class="chart-grid">
+  {% for chart in charts %}
+  {{ chart_card(chart) }}
+  {% else %}
+  <div class="section-card empty">该时间范围内暂无历史时序数据</div>
+  {% endfor %}
+</div>
+{% endblock %}

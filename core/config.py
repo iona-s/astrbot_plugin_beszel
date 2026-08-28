@@ -9,10 +9,11 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from astrbot.api import logger
 
-from .errors import ConfigurationError
+from .beszel.models import HistoryRange
+from .errors import ConfigurationError, InvalidHistoryRangeError
 
 DEFAULT_BASE_URL = "http://127.0.0.1:8090"
-SUPPORTED_HISTORY_RANGES = ("1h", "12h", "24h", "1w", "30d")
+SUPPORTED_HISTORY_RANGES = tuple(item.value for item in HistoryRange)
 
 
 def _mapping(value: object) -> dict:
@@ -121,8 +122,12 @@ class PluginConfig:
         ):
             raise ConfigurationError("beszel.timeout_seconds must be between 2 and 60")
         default_range = _opt_str(beszel_raw.get("history_default_range"), "1h") or "1h"
-        if default_range not in SUPPORTED_HISTORY_RANGES:
-            raise ConfigurationError("beszel.history_default_range is not supported")
+        try:
+            default_range = HistoryRange.parse(default_range).value
+        except InvalidHistoryRangeError as exc:
+            raise ConfigurationError(
+                "beszel.history_default_range is not supported"
+            ) from exc
 
         access_raw = _mapping(data.get("access"))
         mode = _opt_str(access_raw.get("mode"), "admin_only") or "admin_only"

@@ -21,7 +21,7 @@ class HistoryRange(StrEnum):
     @classmethod
     def parse(cls, value: str) -> HistoryRange:
         try:
-            return cls(value)
+            return cls(value.strip().casefold())
         except ValueError as exc:
             raise InvalidHistoryRangeError(
                 "历史范围仅支持 1h、12h、24h、1w、30d"
@@ -199,3 +199,4 @@ class SystemHistoryView(BeszelModel):
     range: HistoryRange
     points: list[SystemHistoryPoint] = Field(default_factory=list)
     has_gaps: bool = False
+    details: SystemDetails | None = None

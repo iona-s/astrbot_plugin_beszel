@@ -51,7 +51,8 @@ class QueryService:
             system.name,
             system.id,
         )
-        details, metrics = await self._get_detail_parts(system.id)
+        details = await self.client.get_system_details(system.id)
+        metrics = await self.client.get_latest_metrics(system.id)
         logger.debug(
             "QueryService.get_system_detail: id=%s details=%s metrics=%s",
             system.id,
@@ -102,14 +103,22 @@ class QueryService:
             len(points),
             has_gaps,
         )
-        return SystemHistoryView(
-            summary=system, range=parsed_range, points=points, has_gaps=has_gaps
-        )
+        system_details = None
+        try:
+            system_details = await self.client.get_system_details(system.id)
+        except Exception:
+            logger.debug(
+                "QueryService.get_system_history: optional details query skipped for id=%s",
+                system.id,
+            )
 
-    async def _get_detail_parts(self, system_id: str):
-        details = await self.client.get_system_details(system_id)
-        metrics = await self.client.get_latest_metrics(system_id)
-        return details, metrics
+        return SystemHistoryView(
+            summary=system,
+            range=parsed_range,
+            points=points,
+            has_gaps=has_gaps,
+            details=system_details,
+        )
 
     @staticmethod
     def select_system(systems: list[SystemSummary], selector: str) -> SystemSummary:

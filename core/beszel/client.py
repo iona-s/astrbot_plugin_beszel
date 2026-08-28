@@ -37,10 +37,6 @@ class BeszelClient:
         self._session: aiohttp.ClientSession | None = None
         self._token: str | None = None
 
-    @property
-    def token_cached(self) -> bool:
-        return self._token is not None
-
     async def initialize(self) -> None:
         if self._session is None or self._session.closed:
             self._session = aiohttp.ClientSession(
@@ -60,7 +56,7 @@ class BeszelClient:
     async def _ensure_session(self) -> aiohttp.ClientSession:
         await self.initialize()
         if self._session is None:
-            raise BeszelTransportError("Beszel HTTP session is unavailable")
+            raise BeszelTransportError("Beszel HTTP 会话不可用")
         return self._session
 
     async def _read_json(self, response: aiohttp.ClientResponse) -> Any:
@@ -73,7 +69,7 @@ class BeszelClient:
         """
         content_length = response.content_length
         if content_length is not None and content_length > MAX_RESPONSE_BYTES:
-            raise BeszelProtocolError("Beszel response is too large")
+            raise BeszelProtocolError("Beszel 响应体过大")
         body = bytearray()
         while True:
             chunk = await response.content.read(64 * 1024)
@@ -81,14 +77,14 @@ class BeszelClient:
                 break
             body.extend(chunk)
             if len(body) > MAX_RESPONSE_BYTES:
-                raise BeszelProtocolError("Beszel response is too large")
+                raise BeszelProtocolError("Beszel 响应体过大")
         try:
             return json.loads(bytes(body))
         except (UnicodeDecodeError, json.JSONDecodeError) as exc:
             logger.debug(
                 "Failed to parse JSON response: %s (body len=%d)", exc, len(body)
             )
-            raise BeszelProtocolError("Beszel response is not valid JSON") from exc
+            raise BeszelProtocolError("Beszel 响应不是有效 JSON") from exc
 
     async def _request_json(
         self,
@@ -140,7 +136,7 @@ class BeszelClient:
                     )
                 if response.status == 401:
                     logger.debug("Beszel API 401 Unauthorized for %s %s", method, path)
-                    raise BeszelAuthError("Beszel authentication failed")
+                    raise BeszelAuthError("Beszel 身份验证失败")
                 if response.status in {400, 403, 404, 429} or response.status >= 500:
                     try:
                         err_payload = await self._read_json(response)
@@ -159,14 +155,14 @@ class BeszelClient:
                             response.status,
                         )
                     if response.status == 403:
-                        raise BeszelAuthError("Beszel access was denied")
+                        raise BeszelAuthError("Beszel 拒绝访问")
                     raise BeszelTransportError(
-                        f"Beszel request failed with HTTP {response.status}",
+                        f"Beszel 请求失败（HTTP {response.status}）",
                         status_code=response.status,
                     )
                 if response.status < 200 or response.status >= 300:
                     raise BeszelTransportError(
-                        f"Beszel request failed with HTTP {response.status}",
+                        f"Beszel 请求失败（HTTP {response.status}）",
                         status_code=response.status,
                     )
                 payload = await self._read_json(response)
@@ -180,14 +176,14 @@ class BeszelClient:
                 return payload
         except TimeoutError as exc:
             logger.debug("Beszel API request timed out: %s %s", method, path)
-            raise BeszelTransportError("Beszel request timed out") from exc
+            raise BeszelTransportError("Beszel 请求超时") from exc
         except aiohttp.ClientError as exc:
             logger.debug("Beszel API network error: %s %s: %s", method, path, exc)
-            raise BeszelTransportError("Beszel request could not be completed") from exc
+            raise BeszelTransportError("无法连接 Beszel") from exc
 
     async def _login(self) -> None:
         if not self.config.query_ready:
-            raise BeszelAuthError("Beszel credentials are not configured")
+            raise BeszelAuthError("未配置 Beszel 登录凭据")
         payload = {"identity": self.config.email, "password": self.config.password}
         data = await self._request_json(
             "POST",
@@ -197,7 +193,7 @@ class BeszelClient:
         )
         token = data.get("token") if isinstance(data, dict) else None
         if not isinstance(token, str) or not token:
-            raise BeszelAuthError("Beszel login response did not contain a token")
+            raise BeszelAuthError("Beszel 登录响应缺少访问令牌")
         self._token = token
 
     async def _authenticated_json(
@@ -226,7 +222,7 @@ class BeszelClient:
                 result = PocketBaseListResult[dict[str, Any]].model_validate(payload)
             except Exception as exc:
                 raise BeszelProtocolError(
-                    f"Invalid {collection} list response"
+                    f"Beszel {collection} 列表响应格式无效"
                 ) from exc
             records.extend(result.items)
             logger.debug(
@@ -255,7 +251,7 @@ class BeszelClient:
         try:
             return [SystemSummary.model_validate(record) for record in records]
         except Exception as exc:
-            raise BeszelProtocolError("Invalid systems response") from exc
+            raise BeszelProtocolError("Beszel 探针列表响应格式无效") from exc
 
     async def get_system_details(self, system_id: str) -> SystemDetails | None:
         try:
@@ -276,7 +272,7 @@ class BeszelClient:
         try:
             return SystemDetails.model_validate(payload)
         except Exception as exc:
-            raise BeszelProtocolError("Invalid system details response") from exc
+            raise BeszelProtocolError("Beszel 探针详情响应格式无效") from exc
 
     async def get_latest_metrics(self, system_id: str) -> SystemMetrics | None:
         records = await self._list_records(
@@ -293,7 +289,7 @@ class BeszelClient:
         try:
             return SystemMetrics.model_validate(records[0])
         except Exception as exc:
-            raise BeszelProtocolError("Invalid latest system metrics response") from exc
+            raise BeszelProtocolError("Beszel 最新监控指标响应格式无效") from exc
 
     async def get_history(
         self, system_id: str, history_range: HistoryRange

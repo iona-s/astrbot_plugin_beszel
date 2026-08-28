@@ -1,0 +1,11 @@
+{% extends "base.html.j2" %}
+{% from "components.html.j2" import header, metric_card, detail_section %}
+{% block content %}
+{{ header(document.header) }}
+<div class="metric-grid">
+  {% for card in document.metric_cards %}{{ metric_card(card) }}{% endfor %}
+</div>
+<div class="detail-sections">
+  {% for section in document.sections %}{{ detail_section(section) }}{% endfor %}
+</div>
+{% endblock %}

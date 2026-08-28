@@ -95,6 +95,7 @@ class BeszelPlugin(Star):
         )
 
     async def initialize(self) -> None:
+        await self.renderer.initialize()
         if self.config.webhook.enabled:
             delivery = WebhookDelivery(
                 self.context, self.config.webhook, self.service, self.renderer
@@ -108,8 +109,20 @@ class BeszelPlugin(Star):
 
     async def terminate(self) -> None:
         if self.webhook_server is not None:
-            await self.webhook_server.stop()
-        await self.client.close()
+            try:
+                await self.webhook_server.stop()
+            except Exception:
+                logger.error("Webhook server shutdown failed", exc_info=True)
+            finally:
+                self.webhook_server = None
+        try:
+            self.renderer.close()
+        except Exception:
+            logger.error("Rendering engine shutdown failed", exc_info=True)
+        try:
+            await self.client.close()
+        except Exception:
+            logger.error("Beszel client shutdown failed", exc_info=True)
 
     async def _build_query_output(
         self,
@@ -187,7 +200,6 @@ class BeszelPlugin(Star):
                 "BeszelPlugin query %s failed with domain error: %s",
                 kind,
                 exc,
-                exc_info=True,
             )
             return QueryOutput([[Plain(str(exc))]], f"Beszel {kind} failed.")
         except Exception as exc:
