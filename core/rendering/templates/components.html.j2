@@ -20,16 +20,22 @@
     </div>
   </div>
   {% if header.status or header.metadata %}
-  <div class="chips">
+  <div class="header-right">
     {% if header.status %}
-    <span class="chip status-chip status-{{ header.status.state }}">
-      <span class="status-dot status-dot-{{ header.status.state }}"></span>
-      {{ header.status.label }}
-    </span>
+    <div class="header-status-row">
+      <span class="chip status-chip status-{{ header.status.state }}">
+        <span class="status-dot status-dot-{{ header.status.state }}"></span>
+        {{ header.status.label }}
+      </span>
+    </div>
     {% endif %}
-    {% for item in header.metadata %}
-    <span class="chip"><span class="chip-label">{{ item.label }}:</span> {{ item.value }}</span>
-    {% endfor %}
+    {% if header.metadata %}
+    <div class="header-meta-row">
+      {% for item in header.metadata %}
+      <span class="chip"><span class="chip-label">{{ item.label }}:</span> {{ item.value }}</span>
+      {% endfor %}
+    </div>
+    {% endif %}
   </div>
   {% endif %}
 </div>
@@ -163,10 +169,44 @@
     {% for row in section.rows %}
     <div class="section-row">
       <span class="section-label">{{ row.label }}</span>
+      {% if row.percent is not none %}
+      <div class="disk-track">
+        <div class="disk-fill" style="background: {{ row.color | color_css if row.color else '#22c55e' }}; width: {{ row.percent | percentage_width(100.0) }}"></div>
+      </div>
+      {% endif %}
       <span class="section-value">{{ row.value }}</span>
     </div>
     {% else %}
     <div class="empty">暂无可用数据</div>
+    {% endfor %}
+  </div>
+</div>
+{%- endmacro %}
+
+{% macro container_section(containers, title="服务与容器") -%}
+<div class="section-card">
+  <div class="section-head">
+    <div class="section-title">{{ title }} ({{ containers | length }})</div>
+  </div>
+  <div class="container-grid">
+    <div class="container-th-row">
+      <span class="container-col-name">名称</span>
+      <span class="container-col-status">状态</span>
+      <span class="container-col-cpu">CPU 占用</span>
+      <span class="container-col-mem">内存占用</span>
+    </div>
+    {% for c in containers %}
+    <div class="container-tr-row">
+      <span class="container-col-name container-name-text">{{ c.name }}</span>
+      <span class="container-col-status">
+        <span class="container-badge container-badge-{{ c.status_color }}">
+          <span class="status-dot status-dot-{{ c.status_color }}"></span>
+          {{ c.substatus }}
+        </span>
+      </span>
+      <span class="container-col-cpu tabular-nums">{{ c.cpu_text }}</span>
+      <span class="container-col-mem tabular-nums">{{ c.memory_text }}</span>
+    </div>
     {% endfor %}
   </div>
 </div>

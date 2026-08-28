@@ -17,6 +17,7 @@ from ..errors import (
     BeszelTransportError,
 )
 from .models import (
+    ContainerStats,
     HistoryRange,
     PocketBaseListResult,
     SystemDetails,
@@ -290,6 +291,54 @@ class BeszelClient:
             return SystemMetrics.model_validate(records[0])
         except Exception as exc:
             raise BeszelProtocolError("Beszel 最新监控指标响应格式无效") from exc
+
+    async def get_latest_containers(self, system_id: str) -> list[ContainerStats]:
+        try:
+            records = await self._list_records(
+                "container_stats",
+                params={
+                    "filter": self._filter_eq("system", system_id) + " && type = '1m'",
+                    "sort": "-created",
+                },
+                limit=1,
+            )
+        except Exception as exc:
+            logger.debug(
+                "BeszelClient.get_latest_containers: error querying container_stats for system_id=%s: %s",
+                system_id,
+                exc,
+            )
+            return []
+        if not records:
+            return []
+        latest_record = records[0]
+        raw_stats = latest_record.get("stats")
+        containers: list[ContainerStats] = []
+        if isinstance(raw_stats, list):
+            for item in raw_stats:
+                if isinstance(item, dict):
+                    try:
+                        containers.append(ContainerStats.model_validate(item))
+                    except Exception as exc:
+                        logger.debug(
+                            "Skipping invalid container item: %s",
+                            type(exc).__name__,
+                        )
+                        continue
+        elif isinstance(raw_stats, dict):
+            for name, item in raw_stats.items():
+                if isinstance(item, dict):
+                    data = dict(item)
+                    data.setdefault("name", name)
+                    try:
+                        containers.append(ContainerStats.model_validate(data))
+                    except Exception as exc:
+                        logger.debug(
+                            "Skipping invalid container item: %s",
+                            type(exc).__name__,
+                        )
+                        continue
+        return containers
 
     async def get_history(
         self, system_id: str, history_range: HistoryRange

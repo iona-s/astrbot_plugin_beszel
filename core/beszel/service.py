@@ -53,13 +53,20 @@ class QueryService:
         )
         details = await self.client.get_system_details(system.id)
         metrics = await self.client.get_latest_metrics(system.id)
+        containers = await self.client.get_latest_containers(system.id)
         logger.debug(
-            "QueryService.get_system_detail: id=%s details=%s metrics=%s",
+            "QueryService.get_system_detail: id=%s details=%s metrics=%s containers=%d",
             system.id,
             details,
             metrics,
+            len(containers),
         )
-        return SystemDetailView(summary=system, details=details, metrics=metrics)
+        return SystemDetailView(
+            summary=system,
+            details=details,
+            metrics=metrics,
+            containers=containers,
+        )
 
     async def get_system_history(
         self,

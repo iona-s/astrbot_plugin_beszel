@@ -11,7 +11,7 @@ from ..errors import RenderingError
 from ..formatters import status_state
 from .engine import PytakumiEngine
 from .presenter import PresentationBuilder
-from .styles import RENDER_WIDTH
+from .styles import RENDER_WIDTH, STATUS_RENDER_WIDTH
 from .templates import BeszelTemplateRenderer
 
 
@@ -105,7 +105,7 @@ class BeszelRenderer:
         return await asyncio.to_thread(
             self.engine.render,
             markup,
-            width=RENDER_WIDTH,
+            width=STATUS_RENDER_WIDTH,
         )
 
     async def render_history(self, view: SystemHistoryView) -> bytes:

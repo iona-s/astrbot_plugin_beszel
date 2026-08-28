@@ -31,6 +31,7 @@ from .models import (
     ChartPoint,
     ChartSeries,
     ChartUnit,
+    ContainerRow,
     DetailRow,
     DetailSection,
     DocumentFooter,
@@ -162,15 +163,6 @@ class PresentationBuilder:
             memory_total = view.details.memory / (1024**3)
         memory_secondary = self._capacity_text(memory_used, memory_total)
 
-        disk_percent = self._usage_percent(
-            stats,
-            ("dp", "disk_percent"),
-            used_key="du",
-            total_key="d",
-        )
-        disk_used = safe_float(stats.get("du"))
-        disk_total = safe_float(stats.get("d"))
-
         bandwidth = self._first(stats, "b", "bandwidth")
         rx_speed, tx_speed, total_bandwidth = self._bandwidth_values(bandwidth)
         load_average = self._extract_load_avg(self._first(stats, "la"))
@@ -195,14 +187,6 @@ class PresentationBuilder:
                 color=threshold_color(memory_percent, summary.status),
             ),
             ProgressMetric(
-                label="根磁盘 ( / )",
-                value=disk_percent,
-                value_text=percent(disk_percent),
-                secondary_text=self._capacity_text(disk_used, disk_total),
-                metric_key="disk",
-                color=threshold_color(disk_percent, summary.status),
-            ),
-            ProgressMetric(
                 label="网络实时带宽",
                 value=total_bandwidth,
                 value_text=(
@@ -221,12 +205,56 @@ class PresentationBuilder:
             ),
         )
 
+        container_rows: list[ContainerRow] = []
+        for c in view.containers:
+            cpu_text = percent(c.cpu) if c.cpu is not None else "N/A"
+            if c.memory is not None:
+                if c.memory >= 1024:
+                    memory_text = f"{c.memory / 1024:.2f} GiB"
+                else:
+                    memory_text = f"{c.memory:.1f} MiB"
+            else:
+                memory_text = "N/A"
+
+            status_str = c.status or "Active"
+            substatus_str = c.substatus or (
+                "Running" if (c.cpu or c.memory) else "Exited"
+            )
+            is_running = substatus_str.casefold() in {"running", "active", "up"}
+            status_color = "up" if is_running else "down"
+
+            container_rows.append(
+                ContainerRow(
+                    name=c.name,
+                    status=status_str,
+                    substatus=substatus_str,
+                    cpu_text=cpu_text,
+                    memory_text=memory_text,
+                    status_color=status_color,
+                )
+            )
+
+        container_rows.sort(
+            key=lambda item: (
+                0 if item.status_color == "up" else 1,
+                item.name.casefold(),
+            )
+        )
+
+        container_title = "Docker 容器"
+
         sections = self._status_sections(view, stats)
-        header_metadata = [MetadataItem("探针 ID", summary.id)]
+        header_metadata = []
         if view.details and view.details.os:
             header_metadata.append(MetadataItem("系统", view.details.os))
-        if view.details and view.details.arch:
-            header_metadata.append(MetadataItem("架构", view.details.arch))
+        info = summary.info or {}
+        arch_val = (
+            view.details.arch
+            if (view.details and view.details.arch)
+            else (info.get("a") or info.get("arch") or info.get("architecture"))
+        )
+        if arch_val:
+            header_metadata.append(MetadataItem("架构", str(arch_val)))
         return StatusDocument(
             header=DocumentHeader(
                 title=summary.name,
@@ -236,6 +264,8 @@ class PresentationBuilder:
             ),
             metric_cards=metric_cards,
             sections=sections,
+            containers=tuple(container_rows),
+            container_title=container_title,
             footer=DocumentFooter(f"{self.plugin_name} · {summary.name}"),
         )
 
@@ -515,7 +545,7 @@ class PresentationBuilder:
             _DiskMetric(f"磁盘 ({item.name})", item.percent_used, item.secondary_text)
             for item in self._extract_efs_items(efs_source)
         )
-        if len(all_disks) > 1:
+        if all_disks:
             sections.append(
                 DetailSection(
                     "存储与挂载磁盘",
@@ -530,15 +560,13 @@ class PresentationBuilder:
                                     else ""
                                 )
                             ),
+                            percent=disk.percent_used,
+                            color=threshold_color(disk.percent_used, summary.status),
                         )
                         for disk in all_disks
                     ),
                 )
             )
-
-        sensor_rows = self._sensor_rows(stats, summary)
-        if sensor_rows:
-            sections.append(DetailSection("硬件传感器与环境监控", tuple(sensor_rows)))
 
         network_rows = self._network_rows(stats)
         if network_rows:
@@ -553,11 +581,20 @@ class PresentationBuilder:
         rows: list[DetailRow] = []
         details = view.details
         if details:
+            arch_val = (
+                details.arch
+                if details.arch
+                else (
+                    summary.info.get("a")
+                    or summary.info.get("arch")
+                    or summary.info.get("architecture")
+                )
+            )
             fields = (
                 ("主机名", details.hostname),
                 ("操作系统", details.os),
                 ("内核版本", details.kernel),
-                ("系统架构", details.arch),
+                ("系统架构", arch_val),
                 ("处理器型号", details.cpu),
                 (
                     "核心 / 线程",

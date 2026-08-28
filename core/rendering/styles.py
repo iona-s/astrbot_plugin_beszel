@@ -5,6 +5,7 @@ from __future__ import annotations
 from .models import Color
 
 RENDER_WIDTH = 1200
+STATUS_RENDER_WIDTH = 800
 
 # Beszel Hub chart palette matching --chart-1 through --chart-5 and secondary accents
 SERIES_PALETTE: tuple[Color, ...] = (

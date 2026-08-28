@@ -183,10 +183,55 @@ class SystemHistoryMetrics(SystemMetrics):
     created: datetime | None = None
 
 
+class ContainerStats(BeszelModel):
+    id: str | None = None
+    system: str | None = None
+    name: str = ""
+    cpu: float | None = None
+    memory: float | None = None
+    status: str = "Active"
+    substatus: str = "Running"
+    updated: datetime | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_container_record(cls, data: Any) -> Any:
+        if not isinstance(data, dict):
+            return data
+        result = dict(data)
+        if ("name" not in result or not result["name"]) and "n" in result:
+            result["name"] = result["n"]
+        if ("cpu" not in result or result["cpu"] is None) and "c" in result:
+            result["cpu"] = result["c"]
+        if ("memory" not in result or result["memory"] is None) and "m" in result:
+            result["memory"] = result["m"]
+        if (
+            ("status" not in result or not result["status"])
+            and "s" in result
+            and isinstance(result["s"], str)
+        ):
+            result["status"] = result["s"]
+        if (
+            ("substatus" not in result or not result["substatus"])
+            and "ss" in result
+            and isinstance(result["ss"], str)
+        ):
+            result["substatus"] = result["ss"]
+
+        stats = result.get("stats")
+        if isinstance(stats, dict):
+            if "cpu" not in result and "c" in stats:
+                result["cpu"] = stats["c"]
+            if "memory" not in result:
+                result["memory"] = stats.get("m") or stats.get("memory")
+        return result
+
+
 class SystemDetailView(BeszelModel):
     summary: SystemSummary
     details: SystemDetails | None = None
     metrics: SystemMetrics | None = None
+    containers: list[ContainerStats] = Field(default_factory=list)
 
 
 class SystemHistoryPoint(BeszelModel):
