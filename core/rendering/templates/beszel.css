@@ -68,7 +68,7 @@ body {
 .chips {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 8px;
   align-items: center;
   justify-content: flex-end;
   margin-left: auto;
@@ -76,23 +76,25 @@ body {
 .chip {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  padding: 3.5px 9px;
-  border: 1px solid #e2e8f0;
+  justify-content: center;
+  gap: 6px;
+  padding: 5px 14px;
+  border: 1px solid #cbd5e1;
   border-radius: 9999px;
   background: #f1f5f9;
-  color: #475569;
-  font-size: 12px;
-  font-weight: 500;
+  color: #0f172a;
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.2;
   white-space: nowrap;
 }
 .chip-label {
-  color: #64748b;
-  font-weight: 400;
+  color: #1e293b;
+  font-weight: 500;
 }
 .status-chip {
   font-weight: 600;
-  padding: 3.5px 10px;
+  padding: 5px 14px;
 }
 .status-up {
   color: #15803d;
