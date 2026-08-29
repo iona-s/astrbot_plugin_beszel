@@ -1,0 +1,206 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verification:
+    name: Verification (Python 3.12)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    env:
+      ASTRBOT_ROOT: ${{ github.workspace }}
+      PYTHONPATH: ${{ github.workspace }}/..
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install \
+            "astrbot>=4.25,<5" \
+            "pre-commit>=4,<5" \
+            "pyyaml>=6,<7" \
+            --requirement requirements.txt
+
+      - name: Check installed dependencies
+        run: python -m pip check
+
+      - name: Run pre-commit
+        run: pre-commit run --all-files --show-diff-on-failure
+
+      - name: Compile Python sources
+        run: python -m compileall -q main.py core
+
+      - name: Validate release metadata
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json
+          import re
+          import struct
+          from pathlib import Path
+
+          import yaml
+
+          root = Path.cwd()
+          metadata = yaml.safe_load((root / "metadata.yaml").read_text(encoding="utf-8"))
+          required = {
+              "name",
+              "display_name",
+              "short_desc",
+              "desc",
+              "version",
+              "astrbot_version",
+              "author",
+              "repo",
+          }
+          missing = sorted(required - metadata.keys())
+          assert not missing, f"metadata.yaml missing fields: {missing}"
+          assert metadata["name"] == "astrbot_plugin_beszel"
+          assert metadata["author"] == "iona-s"
+          assert metadata["repo"] == "https://github.com/iona-s/astrbot_plugin_beszel"
+          assert re.fullmatch(r"v\d+\.\d+\.\d+", metadata["version"])
+
+          changelog = (root / "CHANGELOG.md").read_text(encoding="utf-8")
+          heading = re.search(r"^## \[v?(\d+\.\d+\.\d+)\]", changelog, re.MULTILINE)
+          assert heading, "CHANGELOG.md has no release heading"
+          assert heading.group(1) == metadata["version"].removeprefix("v")
+
+          client_source = (root / "core/beszel/client.py").read_text(encoding="utf-8")
+          user_agent = re.search(
+              r'^USER_AGENT = "astrbot-plugin-beszel/(\d+\.\d+\.\d+)"$',
+              client_source,
+              re.MULTILINE,
+          )
+          assert user_agent, "Beszel client USER_AGENT version is missing"
+          assert user_agent.group(1) == heading.group(1)
+
+          schema = json.loads((root / "_conf_schema.json").read_text(encoding="utf-8"))
+          assert isinstance(schema, dict) and schema
+
+          required_files = (
+              "LICENSE",
+              "README.md",
+              "requirements.txt",
+              "core/assets/BESZEL-LICENSE.txt",
+              "core/assets/fonts/NotoSansSC-Regular.otf",
+              "core/assets/fonts/OFL.txt",
+          )
+          for relative in required_files:
+              path = root / relative
+              assert path.is_file() and path.stat().st_size > 0, relative
+
+          logo = (root / "logo.png").read_bytes()
+          assert logo.startswith(b"\x89PNG\r\n\x1a\n"), "logo.png is not PNG"
+          width, height = struct.unpack(">II", logo[16:24])
+          assert (width, height) == (256, 256), (width, height)
+          PY
+
+      - name: Verify plugin import and renderer
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          from astrbot_plugin_beszel.main import BeszelPlugin
+          from astrbot_plugin_beszel.core.rendering.engine import PytakumiEngine
+
+          assert BeszelPlugin.__name__ == "BeszelPlugin"
+          engine = PytakumiEngine(
+              bundled_font_path=Path("core/assets/fonts/NotoSansSC-Regular.otf")
+          )
+          png = engine.render(
+              '<div style="background:#f8fafc;color:#0f172a;padding:24px;">'
+              "Beszel 发布检查：中文渲染正常</div>",
+              width=480,
+              height=120,
+          )
+          assert len(png) > 1024
+          PY
+
+      - name: Check release archive size
+        shell: bash
+        run: |
+          git archive --format=zip --output=plugin.zip HEAD
+          python - <<'PY'
+          from pathlib import Path
+
+          limit = 16 * 1024 * 1024
+          size = Path("plugin.zip").stat().st_size
+          print(f"Release archive: {size / 1024 / 1024:.2f} MiB")
+          assert size <= limit, f"release archive exceeds 16 MiB: {size} bytes"
+          PY
+
+  minimum-astrbot:
+    name: Compatibility (AstrBot 4.25.0)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    env:
+      ASTRBOT_ROOT: ${{ github.workspace }}
+      PYTHONPATH: ${{ github.workspace }}/..
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Install minimum supported AstrBot
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install \
+            "astrbot==4.25.0" \
+            --requirement requirements.txt
+
+      - name: Check installed dependencies
+        run: python -m pip check
+
+      - name: Verify AstrBot version and plugin import
+        run: |
+          python - <<'PY'
+          from importlib.metadata import version
+
+          assert version("astrbot") == "4.25.0"
+          from astrbot_plugin_beszel.main import BeszelPlugin
+
+          assert BeszelPlugin.__name__ == "BeszelPlugin"
+          PY
+
+  release:
+    name: Release From Changelog
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    needs:
+      - verification
+      - minimum-astrbot
+    permissions:
+      actions: read
+      contents: write
+    uses: ./.github/workflows/release-from-changelog.yml
+    with:
+      automatic: true
+      before_sha: ${{ github.event.before }}
+      release_ref: ${{ github.ref }}
+      target_sha: ${{ github.sha }}

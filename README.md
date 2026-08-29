@@ -3,13 +3,14 @@
 <div align="center">
 
 [![License: AGPL](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](https://opensource.org/licenses/agpl-3.0)
+[![CI](https://github.com/iona-s/astrbot_plugin_beszel/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/iona-s/astrbot_plugin_beszel/actions/workflows/ci.yml)
 ![Python Version](https://img.shields.io/badge/Python-%3E%3D3.12%2C%3C4-blue)
 ![AstrBot](https://img.shields.io/badge/AstrBot-%3E%3D4.25%2C%3C5-green)
 ![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20Linux-lightgrey)
 
 **基于 AstrBot 的 Beszel 探针监控与告警推送插件**
 
-[功能特性](#-功能特性) • [效果预览](#-效果预览) • [指令与工具](#-指令与-llm-工具) • [配置说明](#-配置说明) • [Webhook 接入](#-webhook-告警接入) • [版本兼容](#-版本兼容说明) • [常见问题](#-常见问题)
+[安装](#-安装) • [功能特性](#-功能特性) • [效果预览](#-效果预览) • [指令与工具](#-指令与-llm-工具) • [配置说明](#-配置说明) • [Webhook 接入](#-webhook-告警接入) • [版本兼容](#-版本兼容说明) • [常见问题](#-常见问题)
 
 </div>
 
@@ -17,8 +18,17 @@
 
 ## 📖 简介
 
-`astrbot_plugin_beszel` 是一款用于 AstrBot 轻量级运维监控插件。通过对接 [Beszel](https://beszel.dev/) 监控平台的只读 API，
+`astrbot_plugin_beszel` 是一款用于 AstrBot 的轻量级运维监控插件。通过对接 [Beszel](https://beszel.dev/) 监控平台的只读 API，
 可在聊天会话中快速查询探针运行状态、多节点概览与高精度历史时序图表，并支持接收 Beszel、Watchtower 及 Uptime Kuma 的 Webhook 告警通知。
+
+---
+
+## 📦 安装
+
+### 推荐通过 AstrBot 插件市场安装
+
+在 AstrBot 管理面板的插件市场中搜索 `astrbot_plugin_beszel` 并安装，随后打开
+插件配置填写 Beszel Hub 地址和登录凭据。
 
 ---
 
@@ -26,9 +36,9 @@
 
 - **探针列表 (`/beszel list`)**：纯文本返回全部探针节点名称和状态圆点；离线节点额外显示上次在线时间。
 - **系统总览 (`/beszel overview`)**：卡片式多节点总览长图，直观展示各探针的 CPU、内存、根分区磁盘、网络流量、温度、GPU 等核心指标进度条。
-- **单机详情 (`/beszel status`)**：单探针完整实时详情长图，展示系统规格、运行时间、多核心负载、网络/磁盘/GPU 明细占用及外挂磁盘（EFS）等所有硬件参数。
+- **单机详情 (`/beszel status`)**：单探针完整实时详情长图，展示系统规格、运行时间、多核心负载、网络/磁盘/GPU 明细占用、外挂磁盘（EFS）和 Docker 容器资源占用。
 - **历史监控 (`/beszel history`)**：双列历史时序长图，支持多指标聚合卡片（网络 Rx/Tx、磁盘读写 I/O、1m/5m/15m 负载、GPU 功耗与显存、外挂盘独立 I/O 等）。
-- **监控 Webhook 接收**：支持 Bearer Token 鉴权，兼容 Beszel及其他shoutrrr服务（如Watchtower），并额外支持 Uptime Kuma 的 Webhook 推送，自动将告警消息转发至 AstrBot 会话中。
+- **监控 Webhook 接收**：支持 Bearer Token 鉴权，兼容 Beszel 及其他 Shoutrrr 服务（如 Watchtower），并额外支持 Uptime Kuma 的标准 JSON Webhook，自动将告警消息转发至 AstrBot 会话中。
 
 ---
 
@@ -74,8 +84,8 @@
 | :--- | :--- | :--- |
 | `/beszel list` | 纯文本列出所有探针节点及其状态 | `/beszel list` |
 | `/beszel overview` | 渲染多节点卡片式状态概览长图 | `/beszel overview` |
-| `/beszel status <name-or-id>` | 渲染指定探针的当前实时详细状态长图 | `/beszel status fnnas` |
-| `/beszel history <name-or-id> [range]` | 渲染指定探针的历史时序长图（省略范围时读取配置，初始默认 `1h`） | `/beszel history PC 24h` |
+| `/beszel status <name-or-id>` | 渲染指定探针的当前实时详细状态长图 | `/beszel status server` |
+| `/beszel history <name-or-id> [range]` | 渲染指定探针的历史时序长图（省略范围时读取配置，初始默认 `1h`） | `/beszel history server 24h` |
 
 > 💡 **时间跨度支持**：`1h`（1小时）、`12h`（12小时）、`24h`（24小时）、`1w`（1周）、`30d`（30天）。
 
@@ -177,7 +187,7 @@ generic://127.0.0.1:8899/?template=json&disabletls=yes&@Authorization=Bearer%20<
 </details>
 
 <details>
-<summary><b>3. Uptime Kuma 服务监控告警 (纯文本)</b></summary>
+<summary><b>3. Uptime Kuma 服务监控告警（标准 JSON）</b></summary>
 
 在 Uptime Kuma 的 **设置 -> 通知 -> 设置通知** 中，通知类型选择 **Webhook**：
 - **Post URL**：`http://127.0.0.1:8899/`
@@ -195,30 +205,13 @@ generic://127.0.0.1:8899/?template=json&disabletls=yes&@Authorization=Bearer%20<
 
 ## 📌 版本兼容说明
 
-| 上游服务 / 依赖 | 测试基准版本 | 兼容性说明 |
+| 上游服务 / 依赖 | 兼容范围 | 兼容性说明 |
 | :--- |:-------------| :--- |
-| **Beszel Hub** | `>= v0.18.8` | 验证通过 PocketBase REST API 只读接口与全套多指标时序数据解析 |
-| **Uptime Kuma** | `>= v2.3`    | 验证通过标准 JSON Webhook 状态告警与测试心跳载荷推送 |
-| **AstrBot** | `>= 4.25`    | 插件运行依赖 Python `>= 3.12` |
+| **Beszel Hub** | `>=v0.18.8` | 验证通过 PocketBase REST API 只读接口、多指标时序数据与容器指标解析 |
+| **Uptime Kuma** | `>=v2.3`    | 验证通过标准 JSON Webhook 状态告警与心跳载荷推送 |
+| **AstrBot** | `>=4.25,<5`    | 插件运行依赖 Python `>=3.12,<4` |
 
-> ℹ️ **说明**：上述版本为本插件开发与实机验证的版本。更低版本的 Beszel Hub 或 Uptime Kuma 实际运行可能没有问题，但未经专门测试
-
----
-
-## ❓ 常见问题 (FAQ)
-
-<details>
-<summary><b>Q1: 为什么配置了 Webhook 却收不到消息？</b></summary>
-
-1. 检查日志中是否有 `cannot find platform for session ...` 警告。确保 `target_umos` 中的平台标识与 AstrBot 当前运行的适配器名称一致（例如使用 NapCat/aiocqhttp 时通常为 `default:FriendMessage:QQ号` 或 `default:GroupMessage:群号`）。
-2. 确认 Webhook 请求头中的 `Authorization: Bearer <TOKEN>` 与插件配置中的 Token 一致。
-</details>
-
-<details>
-<summary><b>Q2: 为什么 `/beszel history` 提示未找到探针？</b></summary>
-
-参数 `<name-or-id>` 支持探针名称（如 `PC`、`fnnas`）或 15 位 PocketBase 记录 ID（如 `flkvk9vhj2r2e18`）。若探针名称包含空格，请确保全名匹配。
-</details>
+> ℹ️ **说明**：上述版本为本插件开发与实机验证的版本。更低版本的 Beszel Hub 或 Uptime Kuma 实际运行可能没有问题，但未经专门验证。
 
 ---
 
@@ -232,9 +225,18 @@ generic://127.0.0.1:8899/?template=json&disabletls=yes&@Authorization=Bearer%20<
 
 ---
 
+## 🤝 开发与贡献
+
+欢迎提交 Issue 和 Pull Request。参与开发前请阅读[贡献指南](CONTRIBUTING.md)。
+
+---
+
 ## 📄 开源协议
 
 本项目采用 [GNU Affero General Public License v3.0 (AGPL-3.0)](LICENSE) 开源协议。
 
 随包分发的 `NotoSansSC-Regular.otf` 来自 Noto Sans CJK 2.004，使用
 [SIL Open Font License 1.1](core/assets/fonts/OFL.txt)。
+
+图片中使用的 Beszel 标志衍生自 Beszel Hub 前端，相关版权与 MIT 许可见
+[BESZEL-LICENSE.txt](core/assets/BESZEL-LICENSE.txt)。

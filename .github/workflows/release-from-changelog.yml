@@ -1,0 +1,268 @@
+name: Release From Changelog
+
+on:
+  workflow_call:
+    inputs:
+      automatic:
+        description: "Marks a verified automatic call from CI"
+        required: true
+        type: boolean
+      before_sha:
+        description: "Commit before the verified push"
+        required: false
+        type: string
+        default: ""
+      release_ref:
+        description: "Verified release ref"
+        required: true
+        type: string
+      target_sha:
+        description: "Verified release commit"
+        required: true
+        type: string
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+
+env:
+  GH_REPO: ${{ github.repository }}
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      should_release: ${{ steps.detect.outputs.should_release }}
+
+    steps:
+      - name: Validate trigger and manual verification
+        env:
+          AUTOMATIC_CALL: ${{ inputs.automatic }}
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_REF_INPUT: ${{ inputs.release_ref }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ "$AUTOMATIC_CALL" = "true" ]; then
+            if [ "$RELEASE_REF_INPUT" != "refs/heads/master" ] || [ "$GITHUB_REF" != "refs/heads/master" ]; then
+              echo "Automatic release calls must use master." >&2
+              exit 1
+            fi
+          elif [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+            if [ "$GITHUB_REF" != "refs/heads/master" ]; then
+              echo "Manual release recovery must use master." >&2
+              exit 1
+            fi
+
+            run_id="$(gh run list \
+              --repo "$GH_REPO" \
+              --workflow ci.yml \
+              --commit "$GITHUB_SHA" \
+              --limit 20 \
+              --json databaseId,status,event \
+              --jq 'map(select(.event == "push" and .status == "completed")) | if length > 0 then .[0].databaseId else empty end')"
+            if [ -z "$run_id" ]; then
+              echo "No completed push CI run found for $GITHUB_SHA." >&2
+              exit 1
+            fi
+
+            passed_jobs="$(gh run view "$run_id" \
+              --repo "$GH_REPO" \
+              --json jobs \
+              --jq '[.jobs[] | select(.name == "Verification (Python 3.12)" or .name == "Compatibility (AstrBot 4.25.0)") | select(.conclusion == "success")] | length')"
+            if [ "$passed_jobs" -ne 2 ]; then
+              echo "The selected commit does not have both successful verification jobs." >&2
+              exit 1
+            fi
+          else
+            echo "Unsupported release trigger: $GITHUB_EVENT_NAME" >&2
+            exit 1
+          fi
+
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          ref: ${{ inputs.target_sha || github.sha }}
+
+      - name: Detect changelog update
+        id: detect
+        env:
+          AUTOMATIC_CALL: ${{ inputs.automatic }}
+          BEFORE_SHA_INPUT: ${{ inputs.before_sha }}
+          TARGET_SHA_INPUT: ${{ inputs.target_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ "$AUTOMATIC_CALL" != "true" ]; then
+            echo "should_release=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          before="$BEFORE_SHA_INPUT"
+          after="${TARGET_SHA_INPUT:-$GITHUB_SHA}"
+          if [ -z "$before" ] || [ "$before" = "0000000000000000000000000000000000000000" ]; then
+            changed="$(git ls-files CHANGELOG.md)"
+          else
+            changed="$(git diff --name-only "$before" "$after" -- CHANGELOG.md)"
+          fi
+
+          if [ -n "$changed" ]; then
+            echo "should_release=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "should_release=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  release:
+    runs-on: ubuntu-latest
+    needs: prepare
+    if: needs.prepare.outputs.should_release == 'true'
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          ref: ${{ inputs.target_sha || github.sha }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install YAML parser
+        run: python -m pip install "pyyaml>=6,<7"
+
+      - name: Parse version and release notes
+        id: parse
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          first_heading_line="$(grep -n -m1 -E '^##[[:space:]]*\[?v?[0-9]+\.[0-9]+\.[0-9]+([-.+][^]]+)?\]?.*$' CHANGELOG.md || true)"
+          if [ -z "$first_heading_line" ]; then
+            echo "No version heading like '## [1.2.3]' found in CHANGELOG.md." >&2
+            exit 1
+          fi
+
+          start_line="${first_heading_line%%:*}"
+          heading_text="${first_heading_line#*:}"
+          version="$(printf '%s\n' "$heading_text" | sed -E 's/^##[[:space:]]*\[?v?([^]]+)\]?.*$/\1/')"
+
+          metadata_version="$(python - <<'PY'
+          import yaml
+
+          with open("metadata.yaml", encoding="utf-8") as metadata_file:
+              document = yaml.safe_load(metadata_file)
+          version_value = document.get("version") if isinstance(document, dict) else None
+          if not isinstance(version_value, str) or not version_value.strip():
+              raise SystemExit("Invalid version in metadata.yaml")
+          print(version_value.strip())
+          PY
+          )"
+          metadata_version="${metadata_version#v}"
+          if [ "$metadata_version" != "$version" ]; then
+            echo "Version mismatch: CHANGELOG.md=$version, metadata.yaml=$metadata_version" >&2
+            exit 1
+          fi
+
+          next_line_rel="$(tail -n +$((start_line + 1)) CHANGELOG.md | grep -n -m1 -E '^##[[:space:]]*\[?v?[0-9]+\.[0-9]+\.[0-9]+([-.+][^]]+)?\]?.*$' | cut -d: -f1 || true)"
+          if [ -n "$next_line_rel" ]; then
+            end_line=$((start_line + next_line_rel - 1))
+            sed -n "${start_line},${end_line}p" CHANGELOG.md > release-notes.md
+          else
+            sed -n "${start_line},\$p" CHANGELOG.md > release-notes.md
+          fi
+          if [ ! -s release-notes.md ]; then
+            echo "Failed to extract release notes." >&2
+            exit 1
+          fi
+
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=v$version" >> "$GITHUB_OUTPUT"
+
+      - name: Validate existing tag and release
+        id: dedupe
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_SHA: ${{ inputs.target_sha || github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          tag="${{ steps.parse.outputs.tag }}"
+          tag_exists="false"
+          release_exists="false"
+          tag_target=""
+
+          if tag_target="$(git rev-parse --verify --quiet "refs/tags/${tag}^{commit}")"; then
+            tag_exists="true"
+          fi
+          if gh release view "$tag" --repo "$GH_REPO" >/dev/null 2>&1; then
+            release_exists="true"
+          fi
+
+          if [ "$release_exists" = "true" ]; then
+            if [ "$tag_exists" != "true" ]; then
+              echo "Release $tag exists without a matching tag." >&2
+              exit 1
+            fi
+            if ! git merge-base --is-ancestor "$tag_target" "$TARGET_SHA"; then
+              echo "Release tag $tag is outside the intended release history." >&2
+              exit 1
+            fi
+          elif [ "$tag_exists" = "true" ] && [ "$tag_target" != "$TARGET_SHA" ]; then
+            echo "Existing tag $tag does not point to the intended release commit." >&2
+            exit 1
+          fi
+
+          echo "tag_exists=$tag_exists" >> "$GITHUB_OUTPUT"
+          echo "release_exists=$release_exists" >> "$GITHUB_OUTPUT"
+
+      - name: Update existing release notes
+        if: steps.dedupe.outputs.release_exists == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release edit "${{ steps.parse.outputs.tag }}" \
+            --repo "$GH_REPO" \
+            --title "${{ steps.parse.outputs.tag }}" \
+            --notes-file release-notes.md
+
+      - name: Create release and tag
+        if: steps.dedupe.outputs.release_exists != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_SHA: ${{ inputs.target_sha || github.sha }}
+        shell: bash
+        run: |
+          tag="${{ steps.parse.outputs.tag }}"
+          if [ "${{ steps.dedupe.outputs.tag_exists }}" = "true" ]; then
+            gh release create "$tag" \
+              --repo "$GH_REPO" \
+              --title "$tag" \
+              --notes-file release-notes.md
+          else
+            gh release create "$tag" \
+              --repo "$GH_REPO" \
+              --target "$TARGET_SHA" \
+              --title "$tag" \
+              --notes-file release-notes.md
+          fi
+
+      - name: Verify release body
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          tag="${{ steps.parse.outputs.tag }}"
+          body="$(gh release view "$tag" --repo "$GH_REPO" --json body --jq '.body // ""')"
+          if [ -z "$(printf '%s' "$body" | tr -d '[:space:]')" ]; then
+            echo "Release body is empty for $tag." >&2
+            exit 1
+          fi

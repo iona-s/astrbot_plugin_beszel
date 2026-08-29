@@ -1,5 +1,6 @@
-The Beszel logo embedded in core/rendering/templates/components.html.j2 is
-derived from the Beszel Hub frontend at tag v0.18.8:
+The Beszel logo embedded in core/rendering/templates/components.html.j2 and
+the root logo.png marketplace icon are derived from the Beszel Hub frontend
+at tag v0.18.8:
 
 https://github.com/henrygd/beszel/blob/v0.18.8/internal/site/src/components/logo.tsx
 

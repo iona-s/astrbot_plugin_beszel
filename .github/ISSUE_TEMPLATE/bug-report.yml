@@ -1,0 +1,81 @@
+name: Bug 反馈
+description: 报告一个可复现或偶发的问题
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        请先搜索现有 Issues，并尽量提供从触发到异常出现的完整信息。
+
+  - type: checkboxes
+    id: preflight
+    attributes:
+      label: 提交前检查
+      options:
+        - label: 我已搜索现有 Issues，确认没有重复反馈
+          required: true
+        - label: 我已完整重启 AstrBot，并确认问题仍然存在
+          required: true
+
+  - type: input
+    id: plugin-version
+    attributes:
+      label: 插件版本
+      description: 开发版本请填写 commit hash。
+      placeholder: "例如 v0.1.0 或 abcdef0"
+    validations:
+      required: true
+
+  - type: input
+    id: versions
+    attributes:
+      label: AstrBot、Beszel 与 Uptime Kuma 版本
+      description: 未使用 Uptime Kuma 时可写“不适用”。
+      placeholder: "例如 AstrBot 4.25.5 / Beszel 0.18.8 / Uptime Kuma 2.3.1"
+    validations:
+      required: true
+
+  - type: input
+    id: environment
+    attributes:
+      label: 运行环境
+      description: 填写操作系统、Python 版本、部署方式和消息适配器。
+      placeholder: "例如 Debian 13 / Python 3.12 / Docker / aiocqhttp"
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: 问题描述
+      description: 说明期望行为和实际行为。
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: 复现步骤与出现频率
+      placeholder: |
+        1. 配置……
+        2. 执行……
+        3. 观察到……
+        出现频率：每次 / 偶发 / 仅一次
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: 相关日志
+      description: 提交前移除密码、PocketBase Token、Webhook Token、探针 IP/域名和端口。
+      render: shell
+    validations:
+      required: true
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: 补充信息
+      description: 可附上脱敏配置、Webhook 请求示例或截图。

@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 使用说明与常见问题
+    url: https://github.com/iona-s/astrbot_plugin_beszel#-常见问题-faq
+    about: 提交问题前请先查看配置说明、Webhook 接入方式与常见问题。
