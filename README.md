@@ -9,7 +9,7 @@
 
 **基于 AstrBot 的 Beszel 探针监控与告警推送插件**
 
-[功能特性](#-功能特性) • [指令与工具](#-指令与-llm-工具) • [配置说明](#-配置说明) • [Webhook 接入](#-webhook-告警接入) • [版本兼容](#-版本兼容说明) • [常见问题](#-常见问题)
+[功能特性](#-功能特性) • [效果预览](#-效果预览) • [指令与工具](#-指令与-llm-工具) • [配置说明](#-配置说明) • [Webhook 接入](#-webhook-告警接入) • [版本兼容](#-版本兼容说明) • [常见问题](#-常见问题)
 
 </div>
 
@@ -29,6 +29,40 @@
 - **单机详情 (`/beszel status`)**：单探针完整实时详情长图，展示系统规格、运行时间、多核心负载、网络/磁盘/GPU 明细占用及外挂磁盘（EFS）等所有硬件参数。
 - **历史监控 (`/beszel history`)**：双列历史时序长图，支持多指标聚合卡片（网络 Rx/Tx、磁盘读写 I/O、1m/5m/15m 负载、GPU 功耗与显存、外挂盘独立 I/O 等）。
 - **监控 Webhook 接收**：支持 Bearer Token 鉴权，兼容 Beszel及其他shoutrrr服务（如Watchtower），并额外支持 Uptime Kuma 的 Webhook 推送，自动将告警消息转发至 AstrBot 会话中。
+
+---
+
+## 📸 效果预览
+
+<details>
+  <summary><strong>点击展开示例图片</strong></summary>
+  <br/>
+
+<div align="center">
+  <table>
+    <tr>
+      <td align="center" colspan="2">
+        <img src="assets/overview.png" width="800" alt="Beszel 探针概览"/>
+        <br/>
+        <sub>探针概览</sub>
+      </td>
+    </tr>
+    <tr>
+      <td align="center" valign="top">
+        <img src="assets/status.png" width="400" alt="Beszel 单机详情"/>
+        <br/>
+        <sub>单机详情</sub>
+      </td>
+      <td align="center" valign="top">
+        <img src="assets/history.png" width="400" alt="Beszel 一小时历史状态"/>
+        <br/>
+        <sub>一小时历史状态</sub>
+      </td>
+    </tr>
+  </table>
+</div>
+
+</details>
 
 ---
 
