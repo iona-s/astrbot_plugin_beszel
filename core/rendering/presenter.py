@@ -150,7 +150,7 @@ class PresentationBuilder:
         stats = view.metrics.stats if view.metrics else {}
         status = self._status_badge(summary.status)
 
-        cpu_value = self._first(stats, "cpu", "cpu_percent", "cpus")
+        cpu_value = self._cpu_value(stats)
         memory_percent = self._usage_percent(
             stats,
             ("mp", "memory_percent"),
@@ -207,52 +207,21 @@ class PresentationBuilder:
 
         container_rows: list[ContainerRow] = []
         for c in view.containers:
-            cpu_text = percent(c.cpu) if c.cpu is not None else "N/A"
-            if c.memory is not None:
-                if c.memory >= 1024:
-                    memory_text = f"{c.memory / 1024:.2f} GiB"
-                else:
-                    memory_text = f"{c.memory:.1f} MiB"
-            else:
-                memory_text = "N/A"
-
-            status_str = c.status or "Active"
-            substatus_str = c.substatus or (
-                "Running" if (c.cpu or c.memory) else "Exited"
-            )
-            is_running = substatus_str.casefold() in {"running", "active", "up"}
-            status_color = "up" if is_running else "down"
-
             container_rows.append(
                 ContainerRow(
                     name=c.name,
-                    status=status_str,
-                    substatus=substatus_str,
-                    cpu_text=cpu_text,
-                    memory_text=memory_text,
-                    status_color=status_color,
+                    cpu_text=percent(c.cpu),
+                    memory_text=mb_iec(c.memory),
                 )
             )
 
-        container_rows.sort(
-            key=lambda item: (
-                0 if item.status_color == "up" else 1,
-                item.name.casefold(),
-            )
-        )
-
-        container_title = "Docker 容器"
+        container_rows.sort(key=lambda item: item.name.casefold())
 
         sections = self._status_sections(view, stats)
         header_metadata = []
         if view.details and view.details.os:
             header_metadata.append(MetadataItem("系统", view.details.os))
-        info = summary.info or {}
-        arch_val = (
-            view.details.arch
-            if (view.details and view.details.arch)
-            else (info.get("a") or info.get("arch") or info.get("architecture"))
-        )
+        arch_val = view.details.arch if view.details else None
         if arch_val:
             header_metadata.append(MetadataItem("架构", str(arch_val)))
         return StatusDocument(
@@ -265,7 +234,6 @@ class PresentationBuilder:
             metric_cards=metric_cards,
             sections=sections,
             containers=tuple(container_rows),
-            container_title=container_title,
             footer=DocumentFooter(f"{self.plugin_name} · {summary.name}"),
         )
 
@@ -393,7 +361,7 @@ class PresentationBuilder:
         metrics.append(
             self._progress_metric(
                 "CPU",
-                self._first(info, "cpu", "cpu_percent", "cpus"),
+                self._cpu_value(info),
                 "cpu",
                 status=system.status,
             )
@@ -581,20 +549,11 @@ class PresentationBuilder:
         rows: list[DetailRow] = []
         details = view.details
         if details:
-            arch_val = (
-                details.arch
-                if details.arch
-                else (
-                    summary.info.get("a")
-                    or summary.info.get("arch")
-                    or summary.info.get("architecture")
-                )
-            )
             fields = (
                 ("主机名", details.hostname),
                 ("操作系统", details.os),
                 ("内核版本", details.kernel),
-                ("系统架构", arch_val),
+                ("系统架构", details.arch),
                 ("处理器型号", details.cpu),
                 (
                     "核心 / 线程",
@@ -623,67 +582,6 @@ class PresentationBuilder:
                 DetailRow(
                     label="连接地址",
                     value=self._address(summary.host, summary.port),
-                )
-            )
-        return rows
-
-    def _sensor_rows(
-        self, stats: dict[str, Any], summary: SystemSummary
-    ) -> list[DetailRow]:
-        rows: list[DetailRow] = []
-        gpu_names = {
-            gpu.name.casefold()
-            for gpu in self._extract_gpus(self._first(stats, "g", "gpu"))
-        }
-        raw_temps = stats.get("t")
-        if isinstance(raw_temps, dict):
-            for name, raw_value in sorted(raw_temps.items()):
-                value = safe_float(raw_value)
-                folded_name = str(name).casefold()
-                if value is None:
-                    continue
-                # Exact GPU-name matches are common; keep this O(1) fast path
-                # before scanning for sensor names that contain a GPU name.
-                if folded_name in gpu_names:
-                    continue
-                if any(gpu_name in folded_name for gpu_name in gpu_names):
-                    continue
-                rows.append(
-                    DetailRow(
-                        label=f"温度 ({name})",
-                        value=f"{value:.1f} °C",
-                    )
-                )
-        elif raw_temps is None:
-            value = self._extract_temp(stats)
-            if value is None:
-                value = self._extract_temp(summary.info)
-            if value is not None:
-                rows.append(
-                    DetailRow(
-                        label="设备主温度",
-                        value=f"{value:.1f} °C",
-                    )
-                )
-
-        raw_fans = stats.get("f")
-        if isinstance(raw_fans, dict):
-            for name, raw_value in sorted(raw_fans.items()):
-                value = safe_float(raw_value)
-                if value is not None and value > 0:
-                    rows.append(
-                        DetailRow(
-                            label=f"风扇 ({name})",
-                            value=f"{int(value)} RPM",
-                        )
-                    )
-
-        battery = self._battery_value(self._first(stats, "bat", "battery"))
-        if battery is not None:
-            rows.append(
-                DetailRow(
-                    label="电池电量",
-                    value=f"{int(battery)}%",
                 )
             )
         return rows
@@ -717,7 +615,11 @@ class PresentationBuilder:
         ]
         cards: list[HistoryChartCard] = []
 
-        cpu_points = self._metric_points(valid_points, "cpu", "cpu_percent", "cpus")
+        cpu_points = [
+            (created, value)
+            for created, stats in valid_points
+            if (value := self._cpu_value(stats)) is not None
+        ]
         self._append_chart(
             cards,
             "CPU 使用率",
@@ -1073,9 +975,9 @@ class PresentationBuilder:
 
         swap_samples: list[tuple[datetime, Any, Any, Any]] = []
         for created, stats in valid_points:
-            used = self._extract_metric_float(stats.get("su"))
+            used = safe_float(stats.get("su"))
             if used is None:
-                used = self._extract_metric_float(stats.get("swap"))
+                used = safe_float(stats.get("swap"))
             swap_samples.append(
                 (
                     created,
@@ -1242,37 +1144,15 @@ class PresentationBuilder:
         return f"{value} 运行"
 
     @staticmethod
-    def _metric_points(
-        points: list[tuple[datetime, dict[str, Any]]], *keys: str
-    ) -> list[tuple[datetime, float]]:
-        result: list[tuple[datetime, float]] = []
-        for created, stats in points:
-            value = PresentationBuilder._extract_metric_float(
-                PresentationBuilder._first(stats, *keys)
-            )
-            if value is not None:
-                result.append((created, value))
-        return result
-
-    @staticmethod
-    def _extract_metric_float(value: Any) -> float | None:
-        if value is None or isinstance(value, bool):
+    def _cpu_value(stats: dict[str, Any]) -> float | None:
+        scalar = safe_float(stats.get("cpu"))
+        if scalar is not None:
+            return scalar
+        per_core = stats.get("cpus")
+        if not isinstance(per_core, (list, tuple)):
             return None
-        if isinstance(value, (int, float)):
-            return float(value) if math.isfinite(value) else None
-        if isinstance(value, (list, tuple)) and value:
-            numeric_values = [
-                item for raw in value if (item := safe_float(raw)) is not None
-            ]
-            if numeric_values:
-                return float(sum(numeric_values))
-        if isinstance(value, dict) and value:
-            numeric_values = [
-                item for raw in value.values() if (item := safe_float(raw)) is not None
-            ]
-            if numeric_values:
-                return float(sum(numeric_values) / len(numeric_values))
-        return None
+        values = [value for raw in per_core if (value := safe_float(raw)) is not None]
+        return sum(values) / len(values) if values else None
 
     @staticmethod
     def _capacity_history(
@@ -1284,9 +1164,9 @@ class PresentationBuilder:
         normalized = tuple(
             (
                 created,
-                PresentationBuilder._extract_metric_float(used),
-                PresentationBuilder._extract_metric_float(total),
-                PresentationBuilder._extract_metric_float(percentage),
+                safe_float(used),
+                safe_float(total),
+                safe_float(percentage),
             )
             for created, used, total, percentage in samples
         )

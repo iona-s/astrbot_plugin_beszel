@@ -103,11 +103,8 @@ class DetailSection:
 @dataclass(frozen=True, slots=True)
 class ContainerRow:
     name: str
-    status: str
-    substatus: str
     cpu_text: str
     memory_text: str
-    status_color: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -116,7 +113,6 @@ class StatusDocument:
     metric_cards: tuple[ProgressMetric, ...]
     sections: tuple[DetailSection, ...]
     containers: tuple[ContainerRow, ...]
-    container_title: str
     footer: DocumentFooter
 
 

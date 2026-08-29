@@ -8,7 +8,7 @@
 <div class="detail-sections">
   {% for section in document.sections %}{{ detail_section(section) }}{% endfor %}
   {% if document.containers %}
-  {{ container_section(document.containers, document.container_title) }}
+  {{ container_section(document.containers) }}
   {% endif %}
 </div>
 {% endblock %}
