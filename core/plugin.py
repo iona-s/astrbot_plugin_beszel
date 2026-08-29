@@ -137,7 +137,7 @@ class BeszelPlugin(Star):
             systems = await self.service.list_systems()
             return QueryOutput(
                 [[Plain(format_system_list(systems, timezone=self.display_timezone))]],
-                f"Sent Beszel system list: {len(systems)} systems.",
+                f"Sent Beszel system list: {len(systems)} systems",
             )
         if kind == "overview":
             systems = await self.service.get_overview()
@@ -152,23 +152,25 @@ class BeszelPlugin(Star):
                             )
                         ]
                     ],
-                    "Sent Beszel overview: 0 systems.",
+                    "Sent Beszel overview: 0 systems",
                 )
             images = await self.renderer.render_overview(
                 systems, self.config.render.page_size
             )
             return QueryOutput(
                 [[Image.fromBytes(image)] for image in images],
-                f"Sent Beszel overview: {len(systems)} systems, {len(images)} image pages.",
+                f"Sent Beszel overview: {len(systems)} systems, {len(images)} image pages",
             )
         if not selector:
-            raise BeszelPluginError("缺少探针名称或 ID")
+            raise BeszelPluginError(
+                "⚠️ 请提供要查询的探针名称或 ID（例如：/beszel status my-server）"
+            )
         if kind == "status":
             view = await self.service.get_system_detail(selector)
             image = await self.renderer.render_status(view)
             return QueryOutput(
                 [[Image.fromBytes(image)]],
-                f"Sent Beszel status image for {view.summary.name}.",
+                f"Sent Beszel status image for {view.summary.name}",
             )
         view = await self.service.get_system_history(
             selector,
@@ -177,7 +179,7 @@ class BeszelPlugin(Star):
         image = await self.renderer.render_history(view)
         return QueryOutput(
             [[Image.fromBytes(image)]],
-            f"Sent Beszel history image for {view.summary.name} ({view.range.value}).",
+            f"Sent Beszel history image for {view.summary.name} ({view.range.value})",
         )
 
     async def _safe_query_output(
@@ -201,47 +203,57 @@ class BeszelPlugin(Star):
                 kind,
                 exc,
             )
-            return QueryOutput([[Plain(str(exc))]], f"Beszel {kind} failed.")
+            return QueryOutput([[Plain(str(exc))]], f"Beszel {kind} failed")
         except Exception as exc:
             logger.error(
                 "Beszel %s failed: %s", kind, type(exc).__name__, exc_info=True
             )
             return QueryOutput(
-                [[Plain("Beszel 查询失败，请管理员检查插件配置和日志")]],
-                f"Beszel {kind} failed.",
+                [
+                    [
+                        Plain(
+                            "❌ Beszel 查询执行失败，请稍后重试或联系管理员检查配置与日志"
+                        )
+                    ]
+                ],
+                f"Beszel {kind} failed",
             )
 
     @filter.command_group("beszel")
     async def beszel(self, event: AstrMessageEvent):
-        """查询 Beszel 探针列表、概览、详情或历史。"""
+        """查询 Beszel 探针列表、概览、详情或历史"""
         yield event.plain_result(
-            "用法：/beszel list | overview | status <name-or-id> | history <name-or-id> [range]"
+            "📌 Beszel 监控指令用法：\n"
+            "• /beszel list - 查看探针节点列表\n"
+            "• /beszel overview - 查看所有节点监控大盘\n"
+            "• /beszel status <名称/ID> - 查看指定单机运行详情\n"
+            "• /beszel history <名称/ID> [1h|12h|24h|1w|30d] - 查看历史趋势图"
         )
 
     @beszel.command("list")
     async def beszel_list(self, event: AstrMessageEvent):
-        """列出所有可见 Beszel 探针，仅返回纯文本。"""
+        """列出所有可见 Beszel 探针，仅返回纯文本"""
         output = await self._safe_query_output(event, "list")
         for message in output.messages:
             yield event.chain_result(message)
 
     @beszel.command("overview")
     async def beszel_overview(self, event: AstrMessageEvent):
-        """查询所有探针当前概览。"""
+        """查询所有探针当前概览"""
         output = await self._safe_query_output(event, "overview")
         for message in output.messages:
             yield event.chain_result(message)
 
     @beszel.command("status")
     async def beszel_status(self, event: AstrMessageEvent, selector: GreedyStr):
-        """查询单个探针当前详情。"""
+        """查询单个探针当前详情"""
         output = await self._safe_query_output(event, "status", selector=str(selector))
         for message in output.messages:
             yield event.chain_result(message)
 
     @beszel.command("history")
     async def beszel_history(self, event: AstrMessageEvent, query: GreedyStr):
-        """查询单个探针历史，支持 1h、12h、24h、1w、30d。"""
+        """查询单个探针历史，支持 1h、12h、24h、1w、30d"""
         selector, range_value = self._history_arguments(str(query))
         output = await self._safe_query_output(
             event,

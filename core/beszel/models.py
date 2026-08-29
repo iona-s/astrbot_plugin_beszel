@@ -24,7 +24,7 @@ class HistoryRange(StrEnum):
             return cls(value.strip().casefold())
         except ValueError as exc:
             raise InvalidHistoryRangeError(
-                "历史范围仅支持 1h、12h、24h、1w、30d"
+                "⚠️ 历史时间跨度不支持此参数，仅支持：1h（1小时）、12h（12小时）、24h（24小时）、1w（1周）、30d（30天）"
             ) from exc
 
     @property

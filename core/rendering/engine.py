@@ -39,7 +39,9 @@ class PytakumiEngine:
         except RenderingError:
             raise
         except Exception as exc:
-            raise RenderingError("图片渲染引擎初始化失败") from exc
+            raise RenderingError(
+                "🖼️ 图片渲染引擎初始化失败，请检查字体文件与系统环境"
+            ) from exc
 
     def render(self, markup: str, *, width: int, height: int | None = None) -> bytes:
         """Render local markup to a non-empty PNG byte string."""
@@ -56,7 +58,7 @@ class PytakumiEngine:
             )
         except Exception as exc:
             logger.debug("Pytakumi render failed: %s", type(exc).__name__)
-            raise RenderingError("图片渲染失败") from exc
+            raise RenderingError("🖼️ 图片渲染失败，请查看日志获取详细信息") from exc
         if not isinstance(result, (bytes, bytearray, memoryview)):
             raise RenderingError("图片渲染结果类型无效")
         png = bytes(result)

@@ -169,10 +169,14 @@ class QueryService:
     @staticmethod
     def _one_or_error(candidates: list[SystemSummary], selector: str) -> SystemSummary:
         if not candidates:
-            raise SystemNotFoundError(f"未找到探针：{selector}")
+            raise SystemNotFoundError(
+                f"🔍 未找到名为「{selector}」的探针节点，可发送 /beszel list 查看所有可用探针"
+            )
         if len(candidates) > 1:
             labels = "、".join(f"{item.name} ({item.id[:8]})" for item in candidates)
-            raise AmbiguousSystemError(f"探针名称有歧义，请使用 ID：{labels}")
+            raise AmbiguousSystemError(
+                f"⚠️ 匹配到多个名称相近的探针节点，请使用更详细名称或具体 ID 精准查询：\n{labels}"
+            )
         return candidates[0]
 
     @staticmethod

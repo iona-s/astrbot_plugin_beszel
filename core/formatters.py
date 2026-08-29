@@ -54,15 +54,15 @@ def format_system_list(
     systems: list[SystemSummary], *, timezone: tzinfo | None = None
 ) -> str:
     if not systems:
-        return "Beszel 当前没有可见探针"
+        return "📋 Beszel 当前未发现任何受监控的探针节点"
     timezone = timezone or resolve_timezone("")
-    lines = ["Beszel 探针列表"]
+    lines = [f"📋 Beszel 探针列表（共 {len(systems)} 台）："]
     for system in systems:
         line = f"{_status_marker(system.status)} {system.name}"
         if status_state(system.status) == "down":
             updated = (
                 format_datetime(system.updated, timezone) if system.updated else "未知"
             )
-            line += f" 上次在线时间：{updated}"
+            line += f"（上次在线：{updated}）"
         lines.append(line)
     return "\n".join(lines)

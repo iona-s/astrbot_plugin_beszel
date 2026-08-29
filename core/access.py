@@ -34,4 +34,4 @@ class AccessPolicy:
             and event.unified_msg_origin in self.config.allowed_umos
         ):
             return
-        raise AccessDeniedError("没有权限查询 Beszel 监控信息")
+        raise AccessDeniedError("⚠️ 暂无权限查询 Beszel 监控信息，请联系管理员开通权限")

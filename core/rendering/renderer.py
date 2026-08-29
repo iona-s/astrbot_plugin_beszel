@@ -45,7 +45,7 @@ class BeszelRenderer:
     @property
     def engine(self) -> PytakumiEngine:
         if self._engine is None:
-            raise RenderingError("图片渲染引擎尚未初始化")
+            raise RenderingError("🖼️ 图片渲染引擎尚未初始化，请稍后重试")
         return self._engine
 
     async def initialize(self) -> None:

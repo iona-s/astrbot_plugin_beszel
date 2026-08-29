@@ -108,9 +108,7 @@ class PluginConfig:
         base_url = _opt_str(beszel_raw.get("base_url"), DEFAULT_BASE_URL).rstrip("/")
         parsed = urlsplit(base_url)
         if parsed.scheme not in {"http", "https"} or not parsed.netloc:
-            raise ConfigurationError(
-                "beszel.base_url must be an absolute http/https URL"
-            )
+            raise ConfigurationError("beszel.base_url 必须是合法的 http/https 链接")
 
         timeout = beszel_raw.get("timeout_seconds", 10)
         if timeout is None:
@@ -120,19 +118,23 @@ class PluginConfig:
             or not isinstance(timeout, int)
             or not 2 <= timeout <= 60
         ):
-            raise ConfigurationError("beszel.timeout_seconds must be between 2 and 60")
+            raise ConfigurationError(
+                "beszel.timeout_seconds 请求超时时间必须在 2 到 60 秒之间"
+            )
         default_range = _opt_str(beszel_raw.get("history_default_range"), "1h") or "1h"
         try:
             default_range = HistoryRange.parse(default_range).value
         except InvalidHistoryRangeError as exc:
             raise ConfigurationError(
-                "beszel.history_default_range is not supported"
+                "beszel.history_default_range 默认历史范围不支持，可选值：1h, 12h, 24h, 1w, 30d"
             ) from exc
 
         access_raw = _mapping(data.get("access"))
         mode = _opt_str(access_raw.get("mode"), "admin_only") or "admin_only"
         if mode not in {"admin_only", "umo_allowlist", "all"}:
-            raise ConfigurationError("access.mode is not supported")
+            raise ConfigurationError(
+                "access.mode 访问控制模式不支持，可选值：admin_only, umo_allowlist, all"
+            )
 
         display_raw = _mapping(data.get("display"))
         configured_timezone = _opt_str(display_raw.get("timezone"))
@@ -145,7 +147,7 @@ class PluginConfig:
                     "display.timezone" if configured_timezone else "AstrBot timezone"
                 )
                 raise ConfigurationError(
-                    f"{source} must be a valid IANA timezone"
+                    f"{source} 必须是合法的 IANA 时区格式（例如 Asia/Shanghai）"
                 ) from exc
 
         render_raw = _mapping(data.get("render"))
@@ -157,7 +159,9 @@ class PluginConfig:
             or not isinstance(page_size, int)
             or not 10 <= page_size <= 40
         ):
-            raise ConfigurationError("render.page_size must be between 10 and 40")
+            raise ConfigurationError(
+                "render.page_size 概览每页探针数必须在 10 到 40 之间"
+            )
 
         webhook_raw = _mapping(data.get("webhook"))
         enabled = bool(webhook_raw.get("enabled", False))
