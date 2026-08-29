@@ -60,7 +60,7 @@ class BeszelRenderer:
         )
 
     async def render_overview(
-        self, systems: list[SystemSummary], page_size: int = 10
+        self, systems: list[SystemSummary], page_size: int = 20
     ) -> list[bytes]:
         """Render one PNG per page, sequentially, or no pages for empty input."""
         if not systems:

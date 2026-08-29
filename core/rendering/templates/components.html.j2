@@ -122,27 +122,106 @@
 </div>
 {%- endmacro %}
 
-{% macro overview_card(card) -%}
-<div class="overview-card">
-  <div class="card-head">
-    <div class="card-name">
-      <span class="status-dot status-dot-{{ card.status.state }}"></span>
-      <span>{{ card.name }}</span>
-      {% if card.agent_version %}<span class="version-chip">{{ card.agent_version }}</span>{% endif %}
+{% macro overview_table(rows) -%}
+<div class="section-card overview-table-card">
+  <div class="overview-table-grid">
+    <div class="overview-table-th-row">
+      <div class="th-cell col-sys">
+        <svg class="col-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="8" x="2" y="2" rx="2" ry="2"></rect><rect width="20" height="8" x="2" y="14" rx="2" ry="2"></rect><line x1="6" x2="6.01" y1="6" y2="6"></line><line x1="6" x2="6.01" y1="18" y2="18"></line></svg>
+        <span>系统</span>
+      </div>
+      <div class="th-cell col-metric">
+        <svg class="col-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="16" height="16" x="4" y="4" rx="2"></rect><rect width="6" height="6" x="9" y="9" rx="1"></rect><path d="M15 2v2"></path><path d="M15 20v2"></path><path d="M2 15h2"></path><path d="M2 9h2"></path><path d="M20 15h2"></path><path d="M20 9h2"></path><path d="M9 2v2"></path><path d="M9 20v2"></path></svg>
+        <span>CPU</span>
+      </div>
+      <div class="th-cell col-metric">
+        <svg class="col-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 19v-3"></path><path d="M10 19v-3"></path><path d="M14 19v-3"></path><path d="M18 19v-3"></path><path d="M8 11V9"></path><path d="M16 11V9"></path><path d="M12 11V9"></path><path d="M2 15h20"></path><path d="M2 7a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v1.1a2 2 0 0 0 0 3.837V17a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-5.1a2 2 0 0 0 0-3.837Z"></path></svg>
+        <span>内存</span>
+      </div>
+      <div class="th-cell col-metric">
+        <svg class="col-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" x2="2" y1="12" y2="12"></line><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"></path><line x1="6" x2="6.01" y1="16" y2="16"></line><line x1="10" x2="10.01" y1="16" y2="16"></line></svg>
+        <span>磁盘</span>
+      </div>
+      <div class="th-cell col-load">
+        <svg class="col-icon" viewBox="0 0 24 24" fill="currentColor"><path d="M4 2h16v4.5L13.5 12l6.5 5.5V22H4v-4.5l6.5-5.5L4 6.5zm12.3 5L18 5.5V4H6v1.5L7.7 7zM12 13.3l-6 5.2V20h1l5-3 5 3h1v-1.5z"></path></svg>
+        <span>负载</span>
+      </div>
+      <div class="th-cell col-net">
+        <svg class="col-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m15 20 3-3h2a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h2l3 3zM6 8v1m4-1v1m4-1v1m4-1v1"></path></svg>
+        <span>网络</span>
+      </div>
+      <div class="th-cell col-svc">
+        <svg class="col-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m7 11 2-2-2-2"></path><path d="M11 13h4"></path><rect width="18" height="18" x="3" y="3" rx="2" ry="2"></rect></svg>
+        <span>服务</span>
+      </div>
+      <div class="th-cell col-uptime">
+        <svg class="col-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13.228 21.925A10 10 0 1 1 21.994 12.338"></path><path d="M12 6v6l1.562.781"></path><path d="m14 18 4-4 4 4"></path><path d="M18 22v-8"></path></svg>
+        <span>运行时间</span>
+      </div>
+      <div class="th-cell col-agent">
+        <svg class="col-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h.01"></path><path d="M2 8.82a15 15 0 0 1 20 0"></path><path d="M5 12.859a10 10 0 0 1 14 0"></path><path d="M8.5 16.429a5 5 0 0 1 7 0"></path></svg>
+        <span>客户端</span>
+      </div>
     </div>
-    {% if card.updated_text %}<div class="card-updated">{{ card.updated_text }}</div>{% endif %}
-  </div>
-  <div class="card-body">
-    {% if card.metadata %}
-    <div class="card-meta-bar">
-      {% for item in card.metadata %}
-      <span class="meta-pill"><span class="meta-pill-label">{{ item.label }}:</span> <span class="meta-pill-val">{{ item.value }}</span></span>
-      {% endfor %}
+    {% for row in rows %}
+    <div class="overview-table-tr-row {{ 'row-offline' if row.status_state != 'up' else '' }}">
+      <div class="td-cell col-sys">
+        <span class="status-dot status-dot-{{ row.status_state }}"></span>
+        <span class="sys-name">{{ row.name }}</span>
+      </div>
+      <div class="td-cell col-metric">
+        <span class="metric-val tabular-nums">{{ row.cpu_text }}</span>
+        {% if row.cpu_percent is not none and row.status_state == 'up' %}
+        <div class="table-meter-track">
+          <div class="table-meter-fill" style="background: {{ row.cpu_color | color_css }}; width: {{ row.cpu_percent | percentage_width(100.0) }};"></div>
+        </div>
+        {% endif %}
+      </div>
+      <div class="td-cell col-metric">
+        <span class="metric-val tabular-nums">{{ row.memory_text }}</span>
+        {% if row.memory_percent is not none and row.status_state == 'up' %}
+        <div class="table-meter-track">
+          <div class="table-meter-fill" style="background: {{ row.memory_color | color_css }}; width: {{ row.memory_percent | percentage_width(100.0) }};"></div>
+        </div>
+        {% endif %}
+      </div>
+      <div class="td-cell col-metric">
+        <span class="metric-val tabular-nums">{{ row.disk_text }}</span>
+        {% if row.disk_percent is not none and row.status_state == 'up' %}
+        <div class="table-meter-track">
+          <div class="table-meter-fill" style="background: {{ row.disk_color | color_css }}; width: {{ row.disk_percent | percentage_width(100.0) }};"></div>
+        </div>
+        {% endif %}
+      </div>
+      <div class="td-cell col-load">
+        {% if row.load_text != '-' and row.load_state != 'none' %}
+        <span class="status-dot status-dot-{{ row.load_state }}"></span>
+        <span class="load-val tabular-nums">{{ row.load_text }}</span>
+        {% else %}
+        <span class="muted-dash">-</span>
+        {% endif %}
+      </div>
+      <div class="td-cell col-net">
+        <span class="tabular-nums {{ 'muted-dash' if row.network_text == '-' else '' }}">{{ row.network_text }}</span>
+      </div>
+      <div class="td-cell col-svc">
+        {% if row.services_text != '-' and row.services_state != 'none' %}
+        <span class="status-dot status-dot-{{ row.services_state }}"></span>
+        <span class="tabular-nums">{{ row.services_text }}</span>
+        {% else %}
+        <span class="muted-dash">-</span>
+        {% endif %}
+      </div>
+      <div class="td-cell col-uptime">
+        <span class="tabular-nums">{{ row.uptime_text }}</span>
+      </div>
+      <div class="td-cell col-agent">
+        <span class="agent-tag">{{ row.agent_version if row.agent_version else '-' }}</span>
+      </div>
     </div>
-    {% endif %}
-    <div class="metric-list">
-      {% for metric in card.metrics %}{{ progress_metric(metric) }}{% endfor %}
-    </div>
+    {% else %}
+    <div class="overview-empty-row">当前没有可见探针</div>
+    {% endfor %}
   </div>
 </div>
 {%- endmacro %}

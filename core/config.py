@@ -70,7 +70,7 @@ class DisplayConfig:
 
 @dataclass(frozen=True, slots=True)
 class RenderConfig:
-    page_size: int = 10
+    page_size: int = 20
     show_connection_address: bool = False
     font_path: str = ""
 
@@ -149,15 +149,15 @@ class PluginConfig:
                 ) from exc
 
         render_raw = _mapping(data.get("render"))
-        page_size = render_raw.get("page_size", 10)
+        page_size = render_raw.get("page_size", 20)
         if page_size is None:
-            page_size = 10
+            page_size = 20
         if (
             isinstance(page_size, bool)
             or not isinstance(page_size, int)
-            or not 4 <= page_size <= 20
+            or not 10 <= page_size <= 40
         ):
-            raise ConfigurationError("render.page_size must be between 4 and 20")
+            raise ConfigurationError("render.page_size must be between 10 and 40")
 
         webhook_raw = _mapping(data.get("webhook"))
         enabled = bool(webhook_raw.get("enabled", False))

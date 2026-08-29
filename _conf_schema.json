@@ -39,7 +39,7 @@
     "description": "图片渲染",
     "type": "object",
     "items": {
-      "page_size": {"type": "int", "description": "概览每页系统数", "default": 10, "slider": {"min": 4, "max": 20, "step": 1}},
+      "page_size": {"type": "int", "description": "概览每页系统数", "default": 20, "slider": {"min": 10, "max": 40, "step": 1}},
       "show_connection_address": {"type": "bool", "description": "详情显示连接地址", "default": false},
       "font_path": {
         "type": "string",

@@ -66,19 +66,31 @@ class ProgressMetric:
 
 
 @dataclass(frozen=True, slots=True)
-class OverviewCard:
+class OverviewRow:
     name: str
-    status: StatusBadge
-    updated_text: str
-    metadata: tuple[MetadataItem, ...]
-    metrics: tuple[ProgressMetric, ...]
+    status_state: str  # "up", "down", "unknown"
+    cpu_percent: float | None = None
+    cpu_text: str = "-"
+    cpu_color: Color | None = None
+    memory_percent: float | None = None
+    memory_text: str = "-"
+    memory_color: Color | None = None
+    disk_percent: float | None = None
+    disk_text: str = "-"
+    disk_color: Color | None = None
+    load_text: str = "-"
+    load_state: str = "none"  # "up", "warn", "down", "none"
+    network_text: str = "-"
+    services_text: str = "-"
+    services_state: str = "none"  # "up", "down", "none"
+    uptime_text: str = "-"
     agent_version: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
 class OverviewDocument:
     header: DocumentHeader
-    cards: tuple[OverviewCard, ...]
+    rows: tuple[OverviewRow, ...]
     online_count: int
     offline_count: int
     page_number: int

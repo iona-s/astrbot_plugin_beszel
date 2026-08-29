@@ -15,7 +15,7 @@ from ..beszel.models import (
     SystemHistoryView,
     SystemSummary,
 )
-from ..formatters import StatusState, format_clock, format_datetime, status_state
+from ..formatters import StatusState, format_clock, status_state
 from .formatters import (
     bytes_iec,
     format_bandwidth,
@@ -39,8 +39,8 @@ from .models import (
     HistoryChartCard,
     HistoryDocument,
     MetadataItem,
-    OverviewCard,
     OverviewDocument,
+    OverviewRow,
     ProgressMetric,
     StatusBadge,
     StatusDocument,
@@ -126,16 +126,23 @@ class PresentationBuilder:
         else:
             online_count, offline_count = summary_counts
         header = DocumentHeader(
-            title="探针概览",
+            title="所有客户端",
             subtitle=f"共 {len(summary_tuple)} 个探针节点",
             metadata=(
                 MetadataItem("在线", str(online_count)),
                 MetadataItem("离线", str(offline_count)),
             ),
         )
+
+        def _sort_key(system: SystemSummary) -> tuple[int, str]:
+            is_online = status_state(system.status) == "up"
+            return (0 if is_online else 1, system.name.lower())
+
+        sorted_systems = tuple(sorted(systems_tuple, key=_sort_key))
+
         return OverviewDocument(
             header=header,
-            cards=tuple(self._overview_card(item) for item in systems_tuple),
+            rows=tuple(self._overview_row(item) for item in sorted_systems),
             online_count=online_count,
             offline_count=offline_count,
             page_number=page_number,
@@ -328,109 +335,139 @@ class PresentationBuilder:
             footer=DocumentFooter(f"{self.plugin_name} · {summary.name}"),
         )
 
-    def _overview_card(self, system: SystemSummary) -> OverviewCard:
+    def _overview_row(self, system: SystemSummary) -> OverviewRow:
         info = system.info or {}
         state = status_state(system.status)
-        metadata: list[MetadataItem] = []
+        is_online = state == "up"
+
+        # CPU
+        cpu_val = self._cpu_value(info) if is_online else None
+        cpu_percent = safe_float(cpu_val)
+        cpu_text = percent(cpu_percent) if cpu_percent is not None else "-"
+        cpu_color = threshold_color(cpu_percent, status=system.status)
+
+        # Memory
+        memory_percent = (
+            self._usage_percent(
+                info,
+                ("mp", "memory_percent"),
+                used_key="mu",
+                total_key="m",
+            )
+            if is_online
+            else None
+        )
+        memory_text = percent(memory_percent) if memory_percent is not None else "-"
+        memory_color = threshold_color(memory_percent, status=system.status)
+
+        # Disk
+        disk_percent = (
+            self._usage_percent(
+                info,
+                ("dp", "disk_percent"),
+                used_key="du",
+                total_key="d",
+            )
+            if is_online
+            else None
+        )
+        disk_text = percent(disk_percent) if disk_percent is not None else "-"
+        disk_color = threshold_color(disk_percent, status=system.status)
+
+        # Load average & load_state (P1)
+        if is_online:
+            la_raw = self._first(info, "la")
+            if isinstance(la_raw, (list, tuple)) and la_raw:
+                la_values = [
+                    v for item in la_raw if (v := safe_float(item)) is not None
+                ]
+            elif (v := safe_float(la_raw)) is not None:
+                la_values = [v]
+            else:
+                la_values = []
+
+            if la_values:
+                load_text = " ".join(f"{v:.2f}" for v in la_values)
+                threads_raw = safe_float(
+                    self._first(info, "t", "threads", "c", "cores")
+                )
+                if threads_raw is None or threads_raw <= 0:
+                    cpus = info.get("cpus")
+                    threads_raw = (
+                        len(cpus) if isinstance(cpus, (list, tuple)) and cpus else 1.0
+                    )
+                threads = max(1.0, float(threads_raw))
+                max_load = max(la_values)
+                load_percent = (max_load / threads) * 100.0
+                if load_percent < 65.0:
+                    load_state = "up"
+                elif load_percent < 90.0:
+                    load_state = "warn"
+                else:
+                    load_state = "down"
+            else:
+                load_text = "-"
+                load_state = "none"
+        else:
+            load_text = "-"
+            load_state = "none"
+
+        # Network bandwidth
+        bandwidth = (
+            format_bandwidth(self._first(info, "bb", "b", "bw", "bandwidth", "net"))
+            if is_online
+            else "N/A"
+        )
+        network_text = bandwidth if bandwidth != "N/A" else "-"
+
+        # Services (P2)
+        services = self._first(info, "sv", "s", "services") if is_online else None
+        if isinstance(services, (list, tuple)) and len(services) >= 2:
+            total = safe_float(services[0])
+            failed = safe_float(services[1])
+            if total is not None and total > 0 and failed is not None and failed >= 0:
+                total_int = int(total)
+                failed_int = int(failed)
+                services_text = f"{total_int} (失败: {failed_int})"
+                services_state = "down" if failed_int > 0 else "up"
+            else:
+                services_text = "-"
+                services_state = "none"
+        else:
+            services_text = "-"
+            services_state = "none"
+
+        # Uptime (P2)
         if state == "up":
             uptime = self._first(info, "u", "uptime", "up")
-            uptime_text = uptime_cn(uptime) if uptime is not None else "N/A"
-            if uptime_text != "N/A":
-                metadata.append(MetadataItem("运行", uptime_text))
-            temperature = self._extract_temp(info)
-            if temperature is not None:
-                metadata.append(MetadataItem("温度", f"{temperature:.1f}°C"))
-            bandwidth = format_bandwidth(
-                self._first(info, "bb", "b", "bw", "bandwidth", "net")
-            )
-            if bandwidth != "N/A":
-                metadata.append(MetadataItem("网络", bandwidth))
-            load_average = self._extract_load_avg(self._first(info, "la"))
-            if load_average:
-                metadata.append(MetadataItem("负载", load_average))
-            battery = self._battery_value(self._first(info, "bat", "battery"))
-            if battery is not None:
-                metadata.append(MetadataItem("电量", f"{int(battery)}%"))
-            services = self._first(info, "sv", "s", "services")
-            if services is not None and not isinstance(services, bool):
-                metadata.append(MetadataItem("服务", self._services_text(services)))
+            uptime_text = uptime_cn(uptime) if uptime is not None else "-"
+        elif state == "down":
+            uptime_text = "离线"
         else:
-            metadata.append(MetadataItem("网络", "N/A"))
+            uptime_text = "未知"
 
-        metrics: list[ProgressMetric] = []
-        metrics.append(
-            self._progress_metric(
-                "CPU",
-                self._cpu_value(info),
-                "cpu",
-                status=system.status,
-            )
-        )
-        memory_percent = self._usage_percent(
-            info,
-            ("mp", "memory_percent"),
-            used_key="mu",
-            total_key="m",
-        )
-        metrics.append(
-            self._progress_metric(
-                "内存",
-                memory_percent,
-                "mem",
-                self._capacity_text(
-                    safe_float(info.get("mu")), safe_float(info.get("m"))
-                ),
-                status=system.status,
-            )
-        )
-        metrics.extend(
-            self._progress_metric(
-                f"显卡 ({gpu.name})" if gpu.name != "GPU" else "GPU",
-                gpu.usage,
-                "gpu",
-                status=system.status,
-            )
-            for gpu in self._extract_gpus(self._first(info, "g", "gpu"))
-        )
-        disk_percent = self._usage_percent(
-            info,
-            ("dp", "disk_percent"),
-            used_key="du",
-            total_key="d",
-        )
-        metrics.append(
-            self._progress_metric(
-                "根磁盘 ( / )",
-                disk_percent,
-                "disk",
-                self._capacity_text(
-                    safe_float(info.get("du")), safe_float(info.get("d"))
-                ),
-                status=system.status,
-            )
-        )
-        metrics.extend(
-            self._progress_metric(
-                f"磁盘 ({disk.name})",
-                disk.percent_used,
-                "disk",
-                disk.secondary_text,
-                status=system.status,
-            )
-            for disk in self._extract_efs_items(info)
-        )
+        # Agent version
+        agent_version = self._first(info, "v", "version") or "-"
 
-        return OverviewCard(
+        return OverviewRow(
             name=system.name,
-            status=self._status_badge(system.status),
-            updated_text=(
-                format_datetime(system.updated, self.display_timezone, seconds=True)
-                if system.updated
-                else ""
-            ),
-            metadata=tuple(metadata),
-            metrics=tuple(metrics),
-            agent_version=(f"v{str(info['v']).lstrip('v')}" if info.get("v") else None),
+            status_state=state,
+            cpu_percent=cpu_percent,
+            cpu_text=cpu_text,
+            cpu_color=cpu_color,
+            memory_percent=memory_percent,
+            memory_text=memory_text,
+            memory_color=memory_color,
+            disk_percent=disk_percent,
+            disk_text=disk_text,
+            disk_color=disk_color,
+            load_text=load_text,
+            load_state=load_state,
+            network_text=network_text,
+            services_text=services_text,
+            services_state=services_state,
+            uptime_text=uptime_text,
+            agent_version=agent_version,
         )
 
     def _status_sections(
@@ -1136,14 +1173,6 @@ class PresentationBuilder:
         return f"{host}:{port}" if port is not None else host
 
     @staticmethod
-    def _services_text(value: Any) -> str:
-        if isinstance(value, (list, tuple)) and len(value) >= 2:
-            return f"{value[0]} 运行 (失败: {value[1]})"
-        if isinstance(value, (list, tuple)) and value:
-            return f"{value[0]} 运行"
-        return f"{value} 运行"
-
-    @staticmethod
     def _cpu_value(stats: dict[str, Any]) -> float | None:
         scalar = safe_float(stats.get("cpu"))
         if scalar is not None:
@@ -1263,7 +1292,7 @@ class PresentationBuilder:
             values = [safe_float(item) for item in value]
             finite_values = [item for item in values if item is not None]
             if finite_values:
-                return " / ".join(f"{item:.2f}" for item in finite_values)
+                return " ".join(f"{item:.2f}" for item in finite_values)
         return None
 
     @staticmethod

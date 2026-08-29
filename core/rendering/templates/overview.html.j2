@@ -1,12 +1,6 @@
 {% extends "base.html.j2" %}
-{% from "components.html.j2" import header, overview_card %}
+{% from "components.html.j2" import header, overview_table %}
 {% block content %}
 {{ header(document.header) }}
-<div class="overview-grid">
-  {% for card in document.cards %}
-  {{ overview_card(card) }}
-  {% else %}
-  <div class="section-card empty">当前没有可见探针</div>
-  {% endfor %}
-</div>
+{{ overview_table(document.rows) }}
 {% endblock %}
