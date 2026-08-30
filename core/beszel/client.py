@@ -26,7 +26,7 @@ from .models import (
     SystemSummary,
 )
 
-USER_AGENT = "astrbot-plugin-beszel/0.1.0"
+USER_AGENT = "astrbot-plugin-beszel/1.0.0"
 MAX_RESPONSE_BYTES = 8 * 1024 * 1024
 
 

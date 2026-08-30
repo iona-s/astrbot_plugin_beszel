@@ -2,7 +2,7 @@ name: astrbot_plugin_beszel
 display_name: Beszel 监控
 short_desc: 在聊天中查询 Beszel 服务器状态，并转发监控 Webhook 告警
 desc: 通过 Beszel 只读 API 查询系统状态与历史，并接收监控 Webhook
-version: v0.1.0
+version: v1.0.0
 astrbot_version: ">=4.25,<5"
 author: iona-s
 repo: https://github.com/iona-s/astrbot_plugin_beszel
