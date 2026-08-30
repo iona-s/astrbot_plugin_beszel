@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
-import json
 import math
 from collections.abc import Iterable
 from dataclasses import dataclass
-from datetime import UTC, datetime, tzinfo
+from datetime import datetime, tzinfo
 from typing import Any
 
 from ..beszel.models import (
@@ -15,7 +14,7 @@ from ..beszel.models import (
     SystemHistoryView,
     SystemSummary,
 )
-from ..formatters import StatusState, format_clock, status_state
+from ..formatters import StatusState, status_state
 from .formatters import (
     bytes_iec,
     format_bandwidth,
@@ -91,62 +90,38 @@ class PresentationBuilder:
     def __init__(
         self,
         *,
-        plugin_name: str = "Beszel",
-        show_connection_address: bool = False,
-        display_timezone: tzinfo | None = None,
-        gap_factor: float = 1.5,
+        plugin_name: str,
+        show_connection_address: bool,
+        display_timezone: tzinfo,
     ) -> None:
         self.plugin_name = plugin_name
         self.show_connection_address = show_connection_address
-        self.display_timezone = display_timezone or UTC
-        self.gap_factor = max(1.0, float(gap_factor))
+        self.display_timezone = display_timezone
 
     def build_overview(
         self,
         systems: Iterable[SystemSummary],
         *,
-        page_number: int = 1,
-        page_count: int = 1,
-        summary_systems: Iterable[SystemSummary] | None = None,
-        summary_counts: tuple[int, int] | None = None,
+        page_number: int,
+        page_count: int,
+        summary_counts: tuple[int, int, int],
     ) -> OverviewDocument:
         systems_tuple = tuple(systems)
-        summary_tuple = (
-            systems_tuple if summary_systems is None else tuple(summary_systems)
-        )
         page_number = max(1, page_number)
         page_count = max(page_number, page_count)
-        if summary_counts is None:
-            online_count = sum(
-                status_state(item.status) == "up" for item in summary_tuple
-            )
-            offline_count = sum(
-                status_state(item.status) == "down" for item in summary_tuple
-            )
-        else:
-            online_count, offline_count = summary_counts
+        total_count, online_count, offline_count = summary_counts
         header = DocumentHeader(
             title="所有客户端",
-            subtitle=f"共 {len(summary_tuple)} 个探针节点",
+            subtitle=f"共 {total_count} 个探针节点",
             metadata=(
                 MetadataItem("在线", str(online_count)),
                 MetadataItem("离线", str(offline_count)),
             ),
         )
 
-        def _sort_key(system: SystemSummary) -> tuple[int, str]:
-            is_online = status_state(system.status) == "up"
-            return (0 if is_online else 1, system.name.lower())
-
-        sorted_systems = tuple(sorted(systems_tuple, key=_sort_key))
-
         return OverviewDocument(
             header=header,
-            rows=tuple(self._overview_row(item) for item in sorted_systems),
-            online_count=online_count,
-            offline_count=offline_count,
-            page_number=page_number,
-            page_count=page_count,
+            rows=tuple(self._overview_row(item) for item in systems_tuple),
             footer=DocumentFooter(
                 f"{self.plugin_name} · 第 {page_number}/{page_count} 页"
             ),
@@ -160,7 +135,7 @@ class PresentationBuilder:
         cpu_value = self._cpu_value(stats)
         memory_percent = self._usage_percent(
             stats,
-            ("mp", "memory_percent"),
+            "mp",
             used_key="mu",
             total_key="m",
         )
@@ -170,11 +145,11 @@ class PresentationBuilder:
             memory_total = view.details.memory / (1024**3)
         memory_secondary = self._capacity_text(memory_used, memory_total)
 
-        bandwidth = self._first(stats, "b", "bandwidth")
+        bandwidth = stats.get("b")
         rx_speed, tx_speed, total_bandwidth = self._bandwidth_values(bandwidth)
-        load_average = self._extract_load_avg(self._first(stats, "la"))
+        load_average = self._extract_load_avg(stats.get("la"))
         if load_average is None:
-            load_average = self._extract_load_avg(self._first(summary.info, "la"))
+            load_average = self._extract_load_avg(summary.info.get("la"))
 
         metric_cards = (
             ProgressMetric(
@@ -182,7 +157,6 @@ class PresentationBuilder:
                 value=safe_float(cpu_value),
                 value_text=percent(cpu_value),
                 secondary_text=f"负载: {load_average}" if load_average else "",
-                metric_key="cpu",
                 color=threshold_color(safe_float(cpu_value), summary.status),
             ),
             ProgressMetric(
@@ -190,7 +164,6 @@ class PresentationBuilder:
                 value=memory_percent,
                 value_text=percent(memory_percent),
                 secondary_text=memory_secondary,
-                metric_key="mem",
                 color=threshold_color(memory_percent, summary.status),
             ),
             ProgressMetric(
@@ -206,7 +179,6 @@ class PresentationBuilder:
                     if rx_speed is not None and tx_speed is not None
                     else ""
                 ),
-                metric_key="net",
                 color=metric_color("net"),
                 maximum=0.0,
             ),
@@ -230,7 +202,7 @@ class PresentationBuilder:
             header_metadata.append(MetadataItem("系统", view.details.os))
         arch_val = view.details.arch if view.details else None
         if arch_val:
-            header_metadata.append(MetadataItem("架构", str(arch_val)))
+            header_metadata.append(MetadataItem("架构", arch_val))
         return StatusDocument(
             header=DocumentHeader(
                 title=summary.name,
@@ -246,30 +218,8 @@ class PresentationBuilder:
 
     def build_history(self, view: SystemHistoryView) -> HistoryDocument:
         points = tuple(sorted(view.points, key=lambda point: point.created))
-        first_time = points[0].created if points else None
-        last_time = points[-1].created if points else None
-        time_span = ""
-        if first_time is not None and last_time is not None:
-            time_span = f"{format_clock(first_time, self.display_timezone)}"
-            time_span += f" ~ {format_clock(last_time, self.display_timezone)}"
-
         summary = view.summary
-        metadata = []
-        if self.show_connection_address and summary.host:
-            metadata.append(
-                MetadataItem("连接地址", self._address(summary.host, summary.port))
-            )
         info = summary.info or {}
-        host_name = self._first(info, "h", "hostname")
-        if host_name:
-            metadata.append(MetadataItem("主机名", str(host_name)))
-        if info.get("u") is not None:
-            metadata.append(MetadataItem("运行时间", uptime_cn(info["u"])))
-        if info.get("os"):
-            metadata.append(MetadataItem("系统", str(info["os"])))
-        if info.get("cpu"):
-            metadata.append(MetadataItem("处理器", str(info["cpu"])))
-        metadata.append(MetadataItem("采样点", str(len(points))))
 
         range_value = view.range.value
         range_label = HISTORY_RANGE_LABELS.get(range_value, range_value)
@@ -280,39 +230,17 @@ class PresentationBuilder:
         )
         details = view.details
         uptime_str = uptime_cn(info.get("u")) if info.get("u") is not None else ""
-        os_str = (
-            details.os
-            if (details and details.os)
-            else str(info.get("os", ""))
-            if isinstance(info.get("os"), str)
-            else ""
-        )
-        cpu_str = (
-            details.cpu
-            if (details and details.cpu)
-            else str(info.get("cpu", ""))
-            if (
-                isinstance(info.get("cpu"), str)
-                # Beszel sometimes exposes the aggregate CPU percentage in
-                # ``info.cpu``; numeric-only values are not model names.
-                and not str(info.get("cpu", "")).replace(".", "").isdigit()
-            )
-            else ""
-        )
-        mem_val = info.get("m")
+        os_str = details.os if details and details.os else ""
+        cpu_str = details.cpu if details and details.cpu else ""
         memory_str = (
             gb_iec(details.memory / (1024**3))
             if (details and details.memory is not None)
-            else gb_iec(mem_val)
-            if (mem_val is not None and isinstance(mem_val, (int, float)))
             else ""
         )
 
         header = DocumentHeader(
             title=summary.name,
-            subtitle=f"跨度: {range_label} ({time_span})",
             status=self._status_badge(summary.status),
-            metadata=tuple(metadata),
             range_label=range_label,
             connection_address=conn_addr,
             uptime_text=uptime_str,
@@ -323,15 +251,12 @@ class PresentationBuilder:
         cards = tuple(
             self._history_cards(
                 points,
-                gap_seconds=view.range.expected_interval.total_seconds()
-                * self.gap_factor,
+                gap_seconds=view.range.expected_interval.total_seconds() * 1.5,
             )
         )
         return HistoryDocument(
             header=header,
             cards=cards,
-            sample_count=len(points),
-            has_gaps=view.has_gaps,
             footer=DocumentFooter(f"{self.plugin_name} · {summary.name}"),
         )
 
@@ -350,7 +275,7 @@ class PresentationBuilder:
         memory_percent = (
             self._usage_percent(
                 info,
-                ("mp", "memory_percent"),
+                "mp",
                 used_key="mu",
                 total_key="m",
             )
@@ -364,7 +289,7 @@ class PresentationBuilder:
         disk_percent = (
             self._usage_percent(
                 info,
-                ("dp", "disk_percent"),
+                "dp",
                 used_key="du",
                 total_key="d",
             )
@@ -376,7 +301,7 @@ class PresentationBuilder:
 
         # Load average & load_state (P1)
         if is_online:
-            la_raw = self._first(info, "la")
+            la_raw = info.get("la")
             if isinstance(la_raw, (list, tuple)) and la_raw:
                 la_values = [
                     v for item in la_raw if (v := safe_float(item)) is not None
@@ -388,14 +313,9 @@ class PresentationBuilder:
 
             if la_values:
                 load_text = " ".join(f"{v:.2f}" for v in la_values)
-                threads_raw = safe_float(
-                    self._first(info, "t", "threads", "c", "cores")
-                )
+                threads_raw = safe_float(info.get("t"))
                 if threads_raw is None or threads_raw <= 0:
-                    cpus = info.get("cpus")
-                    threads_raw = (
-                        len(cpus) if isinstance(cpus, (list, tuple)) and cpus else 1.0
-                    )
+                    threads_raw = 1.0
                 threads = max(1.0, float(threads_raw))
                 max_load = max(la_values)
                 load_percent = (max_load / threads) * 100.0
@@ -413,15 +333,11 @@ class PresentationBuilder:
             load_state = "none"
 
         # Network bandwidth
-        bandwidth = (
-            format_bandwidth(self._first(info, "bb", "b", "bw", "bandwidth", "net"))
-            if is_online
-            else "N/A"
-        )
+        bandwidth = format_bandwidth(info.get("bb")) if is_online else "N/A"
         network_text = bandwidth if bandwidth != "N/A" else "-"
 
         # Services (P2)
-        services = self._first(info, "sv", "s", "services") if is_online else None
+        services = info.get("sv") if is_online else None
         if isinstance(services, (list, tuple)) and len(services) >= 2:
             total = safe_float(services[0])
             failed = safe_float(services[1])
@@ -439,7 +355,7 @@ class PresentationBuilder:
 
         # Uptime (P2)
         if state == "up":
-            uptime = self._first(info, "u", "uptime", "up")
+            uptime = info.get("u")
             uptime_text = uptime_cn(uptime) if uptime is not None else "-"
         elif state == "down":
             uptime_text = "离线"
@@ -447,7 +363,7 @@ class PresentationBuilder:
             uptime_text = "未知"
 
         # Agent version
-        agent_version = self._first(info, "v", "version") or "-"
+        agent_version = info.get("v") or "-"
 
         return OverviewRow(
             name=system.name,
@@ -474,9 +390,9 @@ class PresentationBuilder:
         self, view: SystemDetailView, stats: dict[str, Any]
     ) -> tuple[DetailSection, ...]:
         summary = view.summary
-        gpus = self._extract_gpus(self._first(stats, "g", "gpu"))
+        gpus = self._extract_gpus(stats.get("g"))
         if not gpus:
-            gpus = self._extract_gpus(self._first(summary.info, "g", "gpu"))
+            gpus = self._extract_gpus(summary.info.get("g"))
 
         sections: list[DetailSection] = []
         if gpus:
@@ -531,7 +447,7 @@ class PresentationBuilder:
         all_disks: list[_DiskMetric] = []
         disk_percent = self._usage_percent(
             stats,
-            ("dp", "disk_percent"),
+            "dp",
             used_key="du",
             total_key="d",
         )
@@ -672,7 +588,7 @@ class PresentationBuilder:
                     created,
                     stats.get("mu"),
                     stats.get("m"),
-                    self._first(stats, "mp", "memory_percent"),
+                    stats.get("mp"),
                 )
                 for created, stats in valid_points
             )
@@ -714,7 +630,7 @@ class PresentationBuilder:
                     created,
                     stats.get("du"),
                     stats.get("d"),
-                    self._first(stats, "dp", "disk_percent"),
+                    stats.get("dp"),
                 )
                 for created, stats in valid_points
             )
@@ -738,12 +654,8 @@ class PresentationBuilder:
                 read_value = safe_float(dio[0]) or 0.0
                 write_value = safe_float(dio[1]) or 0.0
             else:
-                read_value = mib_rate_to_bytes(
-                    safe_float(self._first(stats, "dr", "r")) or 0.0
-                )
-                write_value = mib_rate_to_bytes(
-                    safe_float(self._first(stats, "dw", "w")) or 0.0
-                )
+                read_value = mib_rate_to_bytes(safe_float(stats.get("dr")) or 0.0)
+                write_value = mib_rate_to_bytes(safe_float(stats.get("dw")) or 0.0)
             disk_read.append((created, read_value))
             disk_write.append((created, write_value))
         if disk_read or disk_write:
@@ -759,7 +671,7 @@ class PresentationBuilder:
         receive: list[tuple[datetime, float]] = []
         transmit: list[tuple[datetime, float]] = []
         for created, stats in valid_points:
-            bandwidth = self._first(stats, "b", "bandwidth")
+            bandwidth = stats.get("b")
             if isinstance(bandwidth, (list, tuple)) and len(bandwidth) >= 2:
                 tx = safe_float(bandwidth[0])
                 rx = safe_float(bandwidth[1])
@@ -785,7 +697,7 @@ class PresentationBuilder:
         load_five: list[tuple[datetime, float]] = []
         load_fifteen: list[tuple[datetime, float]] = []
         for created, stats in valid_points:
-            raw_load = self._first(stats, "la", "load")
+            raw_load = stats.get("la")
             if isinstance(raw_load, (list, tuple)):
                 buckets = (load_one, load_five, load_fifteen)
                 for index, bucket in enumerate(buckets):
@@ -856,7 +768,7 @@ class PresentationBuilder:
 
         gpu_samples: dict[str, list[tuple[datetime, _GpuMetric]]] = {}
         for created, stats in valid_points:
-            for gpu in self._extract_gpus(self._first(stats, "g", "gpu")):
+            for gpu in self._extract_gpus(stats.get("g")):
                 gpu_samples.setdefault(gpu.name, []).append((created, gpu))
         gpu_names = sorted(gpu_samples, key=str.casefold)
         for gpu_name in gpu_names:
@@ -1013,14 +925,12 @@ class PresentationBuilder:
         swap_samples: list[tuple[datetime, Any, Any, Any]] = []
         for created, stats in valid_points:
             used = safe_float(stats.get("su"))
-            if used is None:
-                used = safe_float(stats.get("swap"))
             swap_samples.append(
                 (
                     created,
                     used,
                     stats.get("s"),
-                    self._first(stats, "sp", "swap_percent"),
+                    stats.get("sp"),
                 )
             )
         swap_history = self._capacity_history(
@@ -1065,13 +975,10 @@ class PresentationBuilder:
             series.append(
                 ChartSeries(
                     name=name,
-                    unit=unit,
                     color=series_color(index, metric_key=metric_key),
                     points=normalized_points,
                     segments=segments,
                     current_value=values[-1],
-                    minimum=min(values),
-                    maximum=max(values),
                 )
             )
         if not series:
@@ -1089,7 +996,6 @@ class PresentationBuilder:
                 series=tuple(series),
                 axis_min=axis_min,
                 axis_max=axis_max,
-                maximum_override=maximum_override,
                 extra_series_count=extra_series_count,
             )
         )
@@ -1156,13 +1062,6 @@ class PresentationBuilder:
         return StatusBadge(state=state, label=STATUS_LABELS[state])
 
     @staticmethod
-    def _first(mapping: dict[str, Any], *keys: str) -> Any:
-        for key in keys:
-            if key in mapping:
-                return mapping[key]
-        return None
-
-    @staticmethod
     def _capacity_text(used: float | None, total: float | None) -> str:
         if used is not None and total is not None and total > 0:
             return f"{gb_iec(used)} / {gb_iec(total)}"
@@ -1174,14 +1073,7 @@ class PresentationBuilder:
 
     @staticmethod
     def _cpu_value(stats: dict[str, Any]) -> float | None:
-        scalar = safe_float(stats.get("cpu"))
-        if scalar is not None:
-            return scalar
-        per_core = stats.get("cpus")
-        if not isinstance(per_core, (list, tuple)):
-            return None
-        values = [value for raw in per_core if (value := safe_float(raw)) is not None]
-        return sum(values) / len(values) if values else None
+        return safe_float(stats.get("cpu"))
 
     @staticmethod
     def _capacity_history(
@@ -1250,12 +1142,12 @@ class PresentationBuilder:
     @staticmethod
     def _usage_percent(
         source: dict[str, Any],
-        percent_keys: tuple[str, ...],
+        percent_key: str,
         *,
         used_key: str,
         total_key: str,
     ) -> float | None:
-        explicit = safe_float(PresentationBuilder._first(source, *percent_keys))
+        explicit = safe_float(source.get(percent_key))
         if explicit is not None:
             return explicit
         used = safe_float(source.get(used_key))
@@ -1263,28 +1155,6 @@ class PresentationBuilder:
         if used is not None and total is not None and total > 0:
             return used / total * 100.0
         return None
-
-    @staticmethod
-    def _extract_temp(info: dict[str, Any]) -> float | None:
-        direct = safe_float(info.get("dt"))
-        if direct is not None:
-            return direct
-        direct = safe_float(info.get("temp"))
-        if direct is not None:
-            return direct
-        direct = safe_float(info.get("temperature"))
-        if direct is not None:
-            return direct
-        raw_values = info.get("t")
-        if isinstance(raw_values, dict):
-            values = [safe_float(value) for value in raw_values.values()]
-            finite_values = [value for value in values if value is not None]
-            return max(finite_values) if finite_values else None
-        if isinstance(raw_values, (list, tuple)):
-            values = [safe_float(value) for value in raw_values]
-            finite_values = [value for value in values if value is not None]
-            return max(finite_values) if finite_values else None
-        return safe_float(raw_values)
 
     @staticmethod
     def _extract_load_avg(value: Any) -> str | None:
@@ -1299,7 +1169,7 @@ class PresentationBuilder:
     def _battery_value(value: Any) -> float | None:
         if isinstance(value, (list, tuple)):
             return safe_float(value[0]) if value else None
-        return safe_float(value)
+        return None
 
     @staticmethod
     def _bandwidth_values(
@@ -1309,8 +1179,7 @@ class PresentationBuilder:
             tx = safe_float(value[0])
             rx = safe_float(value[1])
             return rx, tx, rx + tx if rx is not None and tx is not None else None
-        scalar = safe_float(value)
-        return None, None, scalar
+        return None, None, None
 
     @staticmethod
     def _extract_gpus(value: Any) -> tuple[_GpuMetric, ...]:
@@ -1322,17 +1191,15 @@ class PresentationBuilder:
 
         def from_mapping(name: str, data: dict[str, Any]) -> _GpuMetric:
             usage = safe_float(data.get("u"))
-            if usage is None:
-                usage = safe_float(data.get("usage"))
             return _GpuMetric(
-                name=str(data.get("n") or data.get("name") or name),
+                name=str(data.get("n") or name),
                 usage=usage,
                 memory_used_mib=safe_float(data.get("mu")),
                 memory_total_mib=safe_float(data.get("mt")),
                 power_watts=safe_float(data.get("p")),
             )
 
-        if "u" in value or "usage" in value:
+        if "u" in value:
             return (from_mapping("GPU", value),)
         result: list[_GpuMetric] = []
         for key in sorted(value, key=str.casefold):
@@ -1347,12 +1214,7 @@ class PresentationBuilder:
 
     @staticmethod
     def _extract_efs_items(info: dict[str, Any]) -> tuple[_DiskMetric, ...]:
-        raw = PresentationBuilder._first(info, "efs", "extra_filesystems", "disks")
-        if isinstance(raw, str):
-            try:
-                raw = json.loads(raw)
-            except (TypeError, ValueError):
-                return ()
+        raw = info.get("efs")
         if not isinstance(raw, dict):
             return ()
         result: list[_DiskMetric] = []
@@ -1377,21 +1239,3 @@ class PresentationBuilder:
             if value is not None:
                 result.append(_DiskMetric(str(name), value, secondary))
         return tuple(result)
-
-    @staticmethod
-    def _progress_metric(
-        label: str,
-        value: Any,
-        metric_key: str,
-        secondary_text: str = "",
-        status: str = "up",
-    ) -> ProgressMetric:
-        numeric = safe_float(value)
-        return ProgressMetric(
-            label=label,
-            value=numeric,
-            value_text=percent(numeric),
-            secondary_text=secondary_text,
-            metric_key=metric_key,
-            color=threshold_color(numeric, status),
-        )

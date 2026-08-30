@@ -40,7 +40,7 @@ COLOR_CRIT: Color = (239, 68, 68)  # >= 90% : Red-500
 COLOR_PAUSED: Color = (148, 163, 184)  # Offline / Paused : Slate-400
 
 
-def threshold_color(value: float | None, status: str = "up") -> Color:
+def threshold_color(value: float | None, status: str) -> Color:
     """Return Beszel threshold status color based on usage percent."""
     if status.casefold() in {"down", "offline", "paused", "maintenance"}:
         return COLOR_PAUSED
@@ -58,22 +58,21 @@ def metric_color(metric_key: str) -> Color:
     return METRIC_COLORS.get(normalized, SERIES_PALETTE[0])
 
 
-def series_color(index: int, *, metric_key: str | None = None) -> Color:
+def series_color(index: int, *, metric_key: str) -> Color:
     """Return a stable color for an ordered series set."""
-    if metric_key:
-        normalized = metric_key.casefold()
-        # These paired palettes preserve the semantic distinction between
-        # related series (for example Rx/Tx and read/write) across charts.
-        if normalized == "mem":
-            mem_palette = ((16, 185, 129), (13, 148, 136), (110, 231, 183))
-            return mem_palette[index % len(mem_palette)]
-        if normalized == "net":
-            return (16, 185, 129) if index == 0 else (244, 63, 94)
-        if normalized == "disk_io":
-            return (37, 99, 235) if index == 0 else (245, 158, 11)
-        if normalized == "load":
-            load_palette = ((249, 115, 22), (37, 99, 235), (168, 85, 247))
-            return load_palette[index % len(load_palette)]
-        if normalized in METRIC_COLORS and index == 0:
-            return METRIC_COLORS[normalized]
+    normalized = metric_key.casefold()
+    # These paired palettes preserve the semantic distinction between
+    # related series (for example Rx/Tx and read/write) across charts.
+    if normalized == "mem":
+        mem_palette = ((16, 185, 129), (13, 148, 136), (110, 231, 183))
+        return mem_palette[index % len(mem_palette)]
+    if normalized == "net":
+        return (16, 185, 129) if index == 0 else (244, 63, 94)
+    if normalized == "disk_io":
+        return (37, 99, 235) if index == 0 else (245, 158, 11)
+    if normalized == "load":
+        load_palette = ((249, 115, 22), (37, 99, 235), (168, 85, 247))
+        return load_palette[index % len(load_palette)]
+    if normalized in METRIC_COLORS and index == 0:
+        return METRIC_COLORS[normalized]
     return SERIES_PALETTE[index % len(SERIES_PALETTE)]

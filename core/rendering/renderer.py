@@ -12,7 +12,7 @@ from ..formatters import status_state
 from .engine import PytakumiEngine
 from .presenter import PresentationBuilder
 from .styles import RENDER_WIDTH, STATUS_RENDER_WIDTH
-from .templates import BeszelTemplateRenderer
+from .templates.environment import BeszelTemplateRenderer
 
 
 class BeszelRenderer:
@@ -28,10 +28,10 @@ class BeszelRenderer:
     def __init__(
         self,
         *,
-        plugin_name: str = "Beszel",
-        show_connection_address: bool = False,
-        display_timezone: tzinfo | None = None,
-        font_path: str | Path | None = None,
+        plugin_name: str,
+        show_connection_address: bool,
+        display_timezone: tzinfo,
+        font_path: str | Path | None,
     ) -> None:
         self.presentation = PresentationBuilder(
             plugin_name=plugin_name,
@@ -60,7 +60,7 @@ class BeszelRenderer:
         )
 
     async def render_overview(
-        self, systems: list[SystemSummary], page_size: int = 20
+        self, systems: list[SystemSummary], page_size: int
     ) -> list[bytes]:
         """Render one PNG per page, sequentially, or no pages for empty input."""
         if not systems:
@@ -77,7 +77,7 @@ class BeszelRenderer:
                 online_count += 1
             elif state == "down":
                 offline_count += 1
-        summary_counts = (online_count, offline_count)
+        summary_counts = (len(systems), online_count, offline_count)
         outputs: list[bytes] = []
         for page_number, start in enumerate(range(0, len(systems), page_size), start=1):
             page = systems[start : start + page_size]
@@ -85,7 +85,6 @@ class BeszelRenderer:
                 page,
                 page_number=page_number,
                 page_count=page_count,
-                summary_systems=systems,
                 summary_counts=summary_counts,
             )
             markup = self.templates.render_overview(document)

@@ -38,12 +38,13 @@ class BeszelClient:
         self._session: aiohttp.ClientSession | None = None
         self._token: str | None = None
 
-    async def initialize(self) -> None:
+    async def _ensure_session(self) -> aiohttp.ClientSession:
         if self._session is None or self._session.closed:
             self._session = aiohttp.ClientSession(
                 timeout=aiohttp.ClientTimeout(total=self.config.timeout_seconds),
                 headers={"User-Agent": USER_AGENT, "Accept": "application/json"},
             )
+        return self._session
 
     async def close(self) -> None:
         if self._session is not None and not self._session.closed:
@@ -53,12 +54,6 @@ class BeszelClient:
 
     def _url(self, path: str) -> str:
         return f"{self.config.base_url}/{path.lstrip('/')}"
-
-    async def _ensure_session(self) -> aiohttp.ClientSession:
-        await self.initialize()
-        if self._session is None:
-            raise BeszelTransportError("❌ Beszel 客户端连接会话不可用，请联系管理员")
-        return self._session
 
     async def _read_json(self, response: aiohttp.ClientResponse) -> Any:
         """Read a response body with a hard size bound, then parse it as JSON.
@@ -223,8 +218,8 @@ class BeszelClient:
     ) -> list[dict[str, Any]]:
         records: list[dict[str, Any]] = []
         page = 1
+        per_page = min(200, limit) if limit is not None else 200
         while True:
-            per_page = min(200, limit) if limit is not None else 200
             page_params = {**params, "page": page, "perPage": per_page}
             payload = await self._authenticated_json(
                 f"/api/collections/{collection}/records", params=page_params
@@ -255,7 +250,7 @@ class BeszelClient:
         records = await self._list_records(
             "systems",
             params={
-                "fields": "id,name,status,updated,created,info,host,port",
+                "fields": "id,name,status,updated,info,host,port",
                 "sort": "name",
             },
         )
@@ -268,9 +263,7 @@ class BeszelClient:
         try:
             payload = await self._authenticated_json(
                 f"/api/collections/system_details/records/{quote(system_id, safe='')}",
-                params={
-                    "fields": "id,system,hostname,os,kernel,arch,cpu,cores,threads,memory"
-                },
+                params={"fields": "hostname,os,kernel,arch,cpu,cores,threads,memory"},
             )
         except BeszelTransportError as exc:
             if exc.status_code == 404:
@@ -290,7 +283,7 @@ class BeszelClient:
             "system_stats",
             params={
                 "filter": self._filter_eq("system", system_id) + " && type = '1m'",
-                "fields": "system,type,stats",
+                "fields": "stats",
                 "sort": "-created",
             },
             limit=1,
@@ -307,7 +300,7 @@ class BeszelClient:
             "container_stats",
             params={
                 "filter": self._filter_eq("system", system_id) + " && type = '1m'",
-                "fields": "system,type,stats",
+                "fields": "stats",
                 "sort": "-created",
             },
             limit=1,
@@ -344,7 +337,7 @@ class BeszelClient:
                     + f" && type = '{history_range.stats_type}'"
                     + f" && created >= '{cutoff_str}'"
                 ),
-                "fields": "system,type,created,stats",
+                "fields": "created,stats",
                 "sort": "created",
             },
         )

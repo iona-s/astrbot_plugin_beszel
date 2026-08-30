@@ -70,7 +70,6 @@ class ChartGeometry:
     y_axis_width: int
     plot_left: int
     plot_right: int
-    plot_bottom: int
     grid_lines: tuple[ChartGridLine, ...]
     segments: tuple[ChartSegmentGeometry, ...]
     ticks: tuple[ChartTick, ...]
@@ -83,9 +82,7 @@ class ChartTemplateView:
     geometry: ChartGeometry | None
 
 
-def build_chart_view(
-    card: HistoryChartCard, *, timezone: tzinfo = UTC
-) -> ChartTemplateView:
+def build_chart_view(card: HistoryChartCard, *, timezone: tzinfo) -> ChartTemplateView:
     """Prepare numeric SVG geometry without generating markup."""
     current = card.series[0].current_value if card.series else None
     points = [point for series in card.series for point in series.points]
@@ -167,7 +164,6 @@ def build_chart_view(
             y_axis_width=y_axis_width,
             plot_left=PLOT_LEFT,
             plot_right=width - PLOT_RIGHT_INSET,
-            plot_bottom=PLOT_BOTTOM,
             grid_lines=grid_lines,
             segments=tuple(segments),
             ticks=ticks,
@@ -250,7 +246,7 @@ def _timestamp(value: datetime) -> float:
     return value.timestamp()
 
 
-def _time_label(value: datetime, timezone: tzinfo, time_span: float = 0.0) -> str:
+def _time_label(value: datetime, timezone: tzinfo, time_span: float) -> str:
     if value.tzinfo is None or value.tzinfo.utcoffset(value) is None:
         value = value.replace(tzinfo=UTC)
     local_dt = value.astimezone(timezone)
@@ -284,12 +280,9 @@ def _path(coords: list[tuple[float, float]]) -> str:
 
     Fritsch–Carlson monotone cubic: harmonic-mean tangents clamped to zero
     at extrema, so the curve never overshoots (Beszel Hub chart smoothing).
+    The caller guarantees at least two coordinates.
     """
     n = len(coords)
-    if n == 0:
-        return ""
-    if n == 1:
-        return f"M {coords[0][0]:.2f} {coords[0][1]:.2f}"
     if n == 2:
         return f"M {coords[0][0]:.2f} {coords[0][1]:.2f} L {coords[1][0]:.2f} {coords[1][1]:.2f}"
 

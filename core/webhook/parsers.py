@@ -5,19 +5,11 @@ from __future__ import annotations
 import json
 import re
 from collections.abc import Mapping
-from urllib.parse import urlparse
-from uuid import uuid4
+from dataclasses import replace
 
-from .models import (
-    HistoryAttachmentRequest,
-    NormalizedNotification,
-    NotificationSeverity,
-    NotificationSource,
-    NotificationState,
-)
+from .models import NormalizedNotification, NotificationSource
 
 MAX_TEXT_LENGTH = 4000
-_LINK_RE = re.compile(r"https?://[^\s<>\"']+", re.IGNORECASE)
 _SYSTEM_LINK_RE = re.compile(r"/system/([^/?#\s]+)", re.IGNORECASE)
 _HISTORY_SOURCES = frozenset(
     {
@@ -42,19 +34,15 @@ class WebhookPayloadError(ValueError):
 
 def history_requested(notification: NormalizedNotification) -> bool:
     """Return whether a notification may request Beszel history lookup."""
-    return (
-        notification.safe_metadata.get("send_history") == "true"
-        and notification.source in _HISTORY_SOURCES
-    )
+    return notification.send_history and notification.source in _HISTORY_SOURCES
 
 
 def parse_payload(
     body: bytes,
     *,
     content_type: str,
-    headers: Mapping[str, str] | None = None,
-    known_systems: Mapping[str, str] | None = None,
-    request_id: str | None = None,
+    headers: Mapping[str, str],
+    request_id: str,
 ) -> NormalizedNotification:
     """Normalize one request without retaining or serializing its raw body."""
     if not body:
@@ -80,19 +68,19 @@ def parse_payload(
     if isinstance(data, dict) and _looks_like_uptime_kuma(data):
         notification = _parse_uptime_kuma(data, request_id=request_id)
     elif isinstance(data, dict):
-        notification = _parse_json(data, headers=headers or {}, request_id=request_id)
+        notification = _parse_json(data, headers=headers, request_id=request_id)
     else:
         notification = NormalizedNotification(
-            request_id=request_id or uuid4().hex,
+            request_id=request_id,
             source=NotificationSource.SHOUTRRR,
             title="Webhook 通知",
             message=_truncate(text),
         )
-    return attach_history(notification, known_systems or {})
+    return notification
 
 
 def _parse_json(
-    data: dict, *, headers: Mapping[str, str], request_id: str | None
+    data: dict, *, headers: Mapping[str, str], request_id: str
 ) -> NormalizedNotification:
     source_value = headers.get("X-Webhook-Source") or data.get("source")
     source = _source(source_value)
@@ -110,26 +98,11 @@ def _parse_json(
     if not message:
         raise WebhookPayloadError("webhook JSON requires a message")
     return NormalizedNotification(
-        request_id=request_id or uuid4().hex,
+        request_id=request_id,
         source=source,
         title=_truncate(title or source.value),
         message=_truncate(message),
-        severity=_severity(data.get("severity"), message),
-        state=_state(data.get("state"), message),
-        occurred_at=_scalar(data.get("occurred_at")),
-        link=_safe_link(message),
-        safe_metadata={
-            **{
-                key: _truncate(_scalar(data.get(key)), 80)
-                for key in ("source", "type")
-                if _scalar(data.get(key))
-            },
-            **(
-                {"send_history": "true"}
-                if _strict_true(data.get("send_history"))
-                else {}
-            ),
-        },
+        send_history=_strict_true(data.get("send_history")),
     )
 
 
@@ -137,45 +110,23 @@ def _looks_like_uptime_kuma(data: dict) -> bool:
     return {"heartbeat", "monitor", "msg"}.issubset(data)
 
 
-def _parse_uptime_kuma(data: dict, *, request_id: str | None) -> NormalizedNotification:
+def _parse_uptime_kuma(data: dict, *, request_id: str) -> NormalizedNotification:
     heartbeat_value = data["heartbeat"]
     monitor_value = data["monitor"]
     if heartbeat_value is not None and not isinstance(heartbeat_value, dict):
         raise WebhookPayloadError("invalid Uptime Kuma heartbeat")
     if monitor_value is not None and not isinstance(monitor_value, dict):
         raise WebhookPayloadError("invalid Uptime Kuma monitor")
-    heartbeat = heartbeat_value or {}
     monitor = monitor_value or {}
-    status = heartbeat.get("status")
     message = _scalar(data["msg"])
     if not message:
         raise WebhookPayloadError("Uptime Kuma webhook requires msg")
-    state = (
-        NotificationState.UP
-        if type(status) is int and status == 1
-        else NotificationState.DOWN
-        if type(status) is int and status == 0
-        else NotificationState.UNKNOWN
-    )
     title = _scalar(monitor.get("name")) or "Uptime Kuma"
     return NormalizedNotification(
-        request_id=request_id or uuid4().hex,
+        request_id=request_id,
         source=NotificationSource.UPTIME_KUMA,
         title=_truncate(title),
         message=_truncate(message),
-        severity=NotificationSeverity.SUCCESS
-        if state is NotificationState.UP
-        else NotificationSeverity.CRITICAL
-        if state is NotificationState.DOWN
-        else NotificationSeverity.UNKNOWN,
-        state=state,
-        subject_name=_truncate(_scalar(monitor.get("name")), 120) or None,
-        link=_safe_link(_scalar(monitor.get("url"))),
-        safe_metadata={
-            key: _truncate(_scalar(monitor.get(key)), 80)
-            for key in ("type",)
-            if _scalar(monitor.get(key))
-        },
     )
 
 
@@ -188,41 +139,28 @@ def attach_history(
     candidate = _system_candidate(
         notification.title,
         notification.message,
-        notification.link,
         known_systems,
         allow_title=notification.source is NotificationSource.BESZEL,
     )
     if candidate is None:
         return notification
-    source = NotificationSource.BESZEL
-    return NormalizedNotification(
-        request_id=notification.request_id,
-        source=source,
-        title=notification.title,
-        message=notification.message,
-        severity=notification.severity,
-        state=notification.state,
-        occurred_at=notification.occurred_at,
-        subject_name=notification.subject_name,
-        link=notification.link,
-        safe_metadata=notification.safe_metadata,
-        history=HistoryAttachmentRequest(candidate),
+    return replace(
+        notification,
+        source=NotificationSource.BESZEL,
+        history_system_id=candidate,
     )
 
 
 def _system_candidate(
     title: str,
     message: str,
-    link: str | None,
     known_systems: Mapping[str, str],
     *,
     allow_title: bool,
 ) -> str | None:
-    link_text = link or message
-    if link_text:
-        match = _SYSTEM_LINK_RE.search(link_text)
-        if match and match.group(1) in known_systems:
-            return match.group(1)
+    match = _SYSTEM_LINK_RE.search(message)
+    if match and match.group(1) in known_systems:
+        return match.group(1)
     if not allow_title:
         return None
     title_folded = title.casefold()
@@ -244,46 +182,12 @@ def _system_candidate(
 
 def _source(value: object) -> NotificationSource:
     normalized = _scalar(value).casefold()
-    return {item.value: item for item in NotificationSource}.get(
-        normalized,
-        NotificationSource.SHOUTRRR if normalized else NotificationSource.GENERIC,
-    )
-
-
-def _severity(value: object, message: str) -> NotificationSeverity:
-    normalized = _scalar(value).casefold()
-    if normalized in {item.value for item in NotificationSeverity}:
-        return NotificationSeverity(normalized)
-    lowered = message.casefold()
-    return (
-        NotificationSeverity.CRITICAL
-        if any(word in lowered for word in ("down", "failed", "failure", "critical"))
-        else NotificationSeverity.SUCCESS
-        if any(word in lowered for word in ("resolved", "up", "recovered"))
-        else NotificationSeverity.INFO
-    )
-
-
-def _state(value: object, message: str) -> NotificationState:
-    normalized = _scalar(value).casefold()
-    if normalized in {item.value for item in NotificationState}:
-        return NotificationState(normalized)
-    lowered = message.casefold()
-    return (
-        NotificationState.DOWN
-        if "down" in lowered
-        else NotificationState.UP
-        if " up" in lowered
-        else NotificationState.UNKNOWN
-    )
-
-
-def _safe_link(text: str) -> str | None:
-    for candidate in _LINK_RE.findall(text or ""):
-        parsed = urlparse(candidate.rstrip(".,)"))
-        if parsed.scheme in {"http", "https"} and parsed.netloc:
-            return candidate.rstrip(".,)")
-    return None
+    if not normalized:
+        return NotificationSource.GENERIC
+    try:
+        return NotificationSource(normalized)
+    except ValueError:
+        return NotificationSource.SHOUTRRR
 
 
 def _strict_true(value: object) -> bool:
@@ -300,5 +204,7 @@ def _scalar(value: object) -> str:
     )
 
 
-def _truncate(value: str, limit: int = MAX_TEXT_LENGTH) -> str:
-    return value if len(value) <= limit else value[: limit - 1] + "…"
+def _truncate(value: str) -> str:
+    return (
+        value if len(value) <= MAX_TEXT_LENGTH else value[: MAX_TEXT_LENGTH - 1] + "…"
+    )

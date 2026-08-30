@@ -60,7 +60,6 @@ class ProgressMetric:
     value: float | None
     value_text: str
     secondary_text: str = ""
-    metric_key: str = "default"
     color: Color = (59, 130, 246)
     maximum: float = 100.0
 
@@ -91,10 +90,6 @@ class OverviewRow:
 class OverviewDocument:
     header: DocumentHeader
     rows: tuple[OverviewRow, ...]
-    online_count: int
-    offline_count: int
-    page_number: int
-    page_count: int
     footer: DocumentFooter
 
 
@@ -137,13 +132,10 @@ class ChartPoint:
 @dataclass(frozen=True, slots=True)
 class ChartSeries:
     name: str
-    unit: ChartUnit
     color: Color
     points: tuple[ChartPoint, ...]
     segments: tuple[tuple[ChartPoint, ...], ...]
     current_value: float | None
-    minimum: float | None
-    maximum: float | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -154,7 +146,6 @@ class HistoryChartCard:
     series: tuple[ChartSeries, ...]
     axis_min: float
     axis_max: float
-    maximum_override: float | None = None
     extra_series_count: int = 0
 
 
@@ -162,6 +153,4 @@ class HistoryChartCard:
 class HistoryDocument:
     header: DocumentHeader
     cards: tuple[HistoryChartCard, ...]
-    sample_count: int
-    has_gaps: bool
     footer: DocumentFooter

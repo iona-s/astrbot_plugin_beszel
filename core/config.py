@@ -100,7 +100,6 @@ class PluginConfig:
         cls,
         raw: object,
         *,
-        generate_webhook_token: bool = True,
         astrbot_timezone: str = "",
     ) -> PluginConfig:
         data = _mapping(raw)
@@ -194,14 +193,9 @@ class PluginConfig:
         target_umos = _string_items(webhook_raw.get("target_umos", []))
         token = _opt_text(webhook_raw.get("token"))
         token_generated = False
-        if enabled and not token and generate_webhook_token:
+        if enabled and not token:
             token = secrets.token_urlsafe(32)
             token_generated = True
-        if enabled and not token:
-            logger.error(
-                "webhook.token is required when enabled; webhook service will be disabled"
-            )
-            enabled = False
         if enabled and not target_umos:
             logger.error(
                 "webhook.target_umos is empty; webhook service will be disabled"

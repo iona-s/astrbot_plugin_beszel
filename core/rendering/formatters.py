@@ -23,20 +23,9 @@ def safe_float(value: object) -> float | None:
     return result if math.isfinite(result) else None
 
 
-def number(value: object, suffix: str = "") -> str:
-    if value is None or isinstance(value, bool):
-        return "N/A"
-    try:
-        value_float = float(value)
-    except (TypeError, ValueError):
-        return "N/A"
-    if not math.isfinite(value_float):
-        return "N/A"
-    return f"{value_float:.1f}{suffix}"
-
-
 def percent(value: object) -> str:
-    return number(value, "%")
+    numeric = safe_float(value)
+    return "N/A" if numeric is None else f"{numeric:.1f}%"
 
 
 def bytes_iec(value: object) -> str:
@@ -73,23 +62,13 @@ def uptime_cn(value: object) -> str:
 
 
 def gb_to_bytes(value: float) -> float:
-    """Convert a Beszel capacity field to bytes.
-
-    Capacity fields (``m``/``mu``/``d``/``du``, both root and EFS entries) are
-    reported in GiB; values at or above 100_000 (>=100 TiB) are evidently raw
-    bytes and pass through unchanged.
-    """
-    return value if value >= 100_000 else value * (1024**3)
+    """Convert a Beszel GiB capacity field to bytes."""
+    return value * (1024**3)
 
 
 def mib_rate_to_bytes(value: float) -> float:
-    """Convert a legacy Beszel throughput field to bytes/s.
-
-    Legacy disk I/O rates (``r``/``w``/``dr``/``dw``) are reported in MiB/s;
-    values at or above 1000 (>=1 GiB/s) are evidently raw bytes/s and pass
-    through unchanged. Zero and negative rates mean "no traffic" and are kept.
-    """
-    return value * (1024**2) if 0 < value < 1000.0 else value
+    """Convert a Beszel MiB/s throughput field to bytes/s."""
+    return value * (1024**2)
 
 
 def gb_iec(value: object) -> str:

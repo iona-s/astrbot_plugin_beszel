@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, tzinfo
+from datetime import tzinfo
 from pathlib import Path
 from typing import Any
 
@@ -16,15 +16,11 @@ from .charts import build_chart_view
 class BeszelTemplateRenderer:
     """Own and reuse compiled HTML templates and their local stylesheet."""
 
-    def __init__(self, template_dir: str | Path | None = None) -> None:
-        directory = (
-            Path(template_dir)
-            if template_dir is not None
-            else Path(__file__).resolve().parent
-        )
+    def __init__(self) -> None:
+        directory = Path(__file__).resolve().parent
         try:
             self.stylesheet = (directory / "beszel.css").read_text(encoding="utf-8")
-            self._environment = Environment(
+            environment = Environment(
                 loader=FileSystemLoader(directory),
                 autoescape=True,
                 undefined=StrictUndefined,
@@ -33,14 +29,14 @@ class BeszelTemplateRenderer:
                 trim_blocks=True,
                 lstrip_blocks=True,
             )
-            self._environment.filters.update(
+            environment.filters.update(
                 color_css=_color_css,
                 coord=_coordinate,
                 percentage_width=_percentage_width,
             )
-            self._overview = self._environment.get_template("overview.html.j2")
-            self._status = self._environment.get_template("status.html.j2")
-            self._history = self._environment.get_template("history.html.j2")
+            self._overview = environment.get_template("overview.html.j2")
+            self._status = environment.get_template("status.html.j2")
+            self._history = environment.get_template("history.html.j2")
         except Exception as exc:
             raise RenderingError("图片模板初始化失败") from exc
 
@@ -50,9 +46,7 @@ class BeszelTemplateRenderer:
     def render_status(self, document: StatusDocument) -> str:
         return self._render(self._status, document=document)
 
-    def render_history(
-        self, document: HistoryDocument, *, timezone: tzinfo = UTC
-    ) -> str:
+    def render_history(self, document: HistoryDocument, *, timezone: tzinfo) -> str:
         charts = tuple(
             build_chart_view(card, timezone=timezone) for card in document.cards
         )
@@ -77,7 +71,7 @@ def _coordinate(value: float | int) -> str:
     return f"{float(value):.2f}"
 
 
-def _percentage_width(value: float | None, maximum: float = 100.0) -> str:
+def _percentage_width(value: float | None, maximum: float) -> str:
     if value is None or maximum <= 0:
         return "0"
     clamped = min(maximum, max(0.0, float(value)))

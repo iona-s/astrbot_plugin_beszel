@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-
 from astrbot.api import logger
 from astrbot.core.message.components import Image, Plain
 from astrbot.core.message.message_event_result import MessageChain
@@ -11,17 +9,8 @@ from astrbot.core.message.message_event_result import MessageChain
 from ..beszel.models import HistoryRange
 from ..beszel.service import QueryService
 from ..config import WebhookConfig
-from ..rendering import BeszelRenderer
+from ..rendering.renderer import BeszelRenderer
 from .models import NormalizedNotification
-
-
-@dataclass(frozen=True, slots=True)
-class DeliveryResult:
-    attempted: int
-    text_successes: int
-    text_failures: int
-    image_successes: int
-    image_failures: int
 
 
 class WebhookDelivery:
@@ -39,7 +28,7 @@ class WebhookDelivery:
         self.service = service
         self.renderer = renderer
 
-    async def deliver(self, notification: NormalizedNotification) -> DeliveryResult:
+    async def deliver(self, notification: NormalizedNotification) -> int:
         logger.debug(
             "WebhookDelivery: starting delivery for request_id=%s (source=%s, title=%s) to %d targets",
             notification.request_id,
@@ -48,15 +37,15 @@ class WebhookDelivery:
             len(self.config.target_umos),
         )
         image_bytes: bytes | None = None
-        if notification.history is not None:
+        if notification.history_system_id is not None:
             try:
                 view = await self.service.get_system_history(
-                    notification.history.system_id, HistoryRange.ONE_HOUR
+                    notification.history_system_id, HistoryRange.ONE_HOUR
                 )
                 image_bytes = await self.renderer.render_history(view)
                 logger.debug(
                     "WebhookDelivery: rendered 1h history image for system_id=%s (size=%d bytes)",
-                    notification.history.system_id,
+                    notification.history_system_id,
                     len(image_bytes),
                 )
             except Exception as exc:
@@ -97,19 +86,15 @@ class WebhookDelivery:
                         target,
                         type(exc).__name__,
                     )
-        result = DeliveryResult(
-            len(self.config.target_umos),
+        logger.debug(
+            "WebhookDelivery: completed delivery for request_id=%s: text=%d/%d image=%d/%d",
+            notification.request_id,
             text_successes,
             text_failures,
             image_successes,
             image_failures,
         )
-        logger.debug(
-            "WebhookDelivery: completed delivery for request_id=%s: %s",
-            notification.request_id,
-            result,
-        )
-        return result
+        return text_successes
 
     @staticmethod
     def _text(notification: NormalizedNotification) -> str:

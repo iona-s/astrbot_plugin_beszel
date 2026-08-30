@@ -20,7 +20,7 @@ from .beszel.service import QueryService
 from .config import SUPPORTED_HISTORY_RANGES, PluginConfig
 from .errors import BeszelPluginError
 from .formatters import format_system_list, resolve_timezone
-from .rendering import BeszelRenderer
+from .rendering.renderer import BeszelRenderer
 from .webhook.delivery import WebhookDelivery
 from .webhook.server import WebhookServer
 

@@ -79,7 +79,7 @@ class WebhookServer:
             else ("<empty>" if not auth else "<invalid>"),
         )
         expected = f"Bearer {self.config.token}"
-        if not auth.startswith("Bearer ") or not secrets.compare_digest(auth, expected):
+        if not has_bearer or not secrets.compare_digest(auth, expected):
             logger.debug("Webhook request id=%s failed authentication", request_id)
             return web.json_response(
                 {"request_id": request_id, "status": "unauthorized"}, status=401
@@ -97,7 +97,7 @@ class WebhookServer:
                 request_id,
                 notification.source.value,
                 notification.title,
-                notification.safe_metadata.get("send_history"),
+                notification.send_history,
             )
             if history_requested(notification):
                 try:
@@ -107,9 +107,7 @@ class WebhookServer:
                     logger.debug(
                         "Webhook request id=%s resolved history target: system_id=%s",
                         request_id,
-                        notification.history.system_id
-                        if notification.history
-                        else None,
+                        notification.history_system_id,
                     )
                 except Exception as exc:
                     logger.warning(
@@ -128,7 +126,7 @@ class WebhookServer:
                 {"request_id": request_id, "status": "invalid"}, status=status
             )
         try:
-            result = await self.delivery.deliver(notification)
+            text_successes = await self.delivery.deliver(notification)
         except Exception as exc:
             logger.error(
                 "Webhook request id=%s delivery raised %s",
@@ -139,7 +137,7 @@ class WebhookServer:
             return web.json_response(
                 {"request_id": request_id, "status": "delivery_error"}, status=500
             )
-        if result.text_successes == 0:
+        if text_successes == 0:
             logger.debug(
                 "Webhook request id=%s all deliveries failed -> HTTP 502", request_id
             )

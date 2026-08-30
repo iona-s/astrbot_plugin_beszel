@@ -19,7 +19,7 @@ class HistoryRange(StrEnum):
     THIRTY_DAYS = "30d"
 
     @classmethod
-    def parse(cls, value: str) -> HistoryRange:
+    def parse(cls, value: str | HistoryRange) -> HistoryRange:
         try:
             return cls(value.strip().casefold())
         except ValueError as exc:
@@ -58,26 +58,16 @@ class HistoryRange(StrEnum):
         }[self]
 
 
-class BeszelModel(BaseModel):
-    """Common compatibility settings for upstream records."""
-
-    model_config = ConfigDict(extra="allow", populate_by_name=True)
-
-
-class PocketBaseListResult[T](BeszelModel):
-    page: int = 1
-    per_page: int = Field(default=0, alias="perPage")
-    total_items: int = Field(default=0, alias="totalItems")
+class PocketBaseListResult[T](BaseModel):
     total_pages: int = Field(default=1, alias="totalPages")
     items: list[T] = Field(default_factory=list)
 
 
-class SystemSummary(BeszelModel):
+class SystemSummary(BaseModel):
     id: str
     name: str
     status: str
     updated: datetime | None = None
-    created: datetime | None = None
     info: dict[str, Any] = Field(default_factory=dict)
     host: str | None = None
     port: int | None = None
@@ -92,9 +82,7 @@ class SystemSummary(BeszelModel):
         return value
 
 
-class SystemDetails(BeszelModel):
-    id: str | None = None
-    system: str | None = None
+class SystemDetails(BaseModel):
     hostname: str | None = None
     os: str | None = None
     kernel: str | None = None
@@ -149,35 +137,17 @@ class SystemDetails(BeszelModel):
             return None
 
 
-class SystemMetrics(BeszelModel):
-    system: str | None = None
-    type: str | None = None
-    stats: dict[str, Any] = Field(default_factory=dict)
-
-    @model_validator(mode="before")
-    @classmethod
-    def normalize_stats(cls, value: Any) -> Any:
-        if not isinstance(value, dict):
-            raise ValueError("system_stats record must be an object")
-        result = dict(value)
-        if "stats" not in result:
-            result["stats"] = {
-                key: val
-                for key, val in result.items()
-                if key not in {"id", "system", "type", "created", "updated"}
-            }
-        return result
+class SystemMetrics(BaseModel):
+    stats: dict[str, Any]
 
 
 class SystemHistoryMetrics(SystemMetrics):
     created: datetime | None = None
 
 
-class ContainerStats(BeszelModel):
+class ContainerStats(BaseModel):
     model_config = ConfigDict(
         extra="ignore",
-        populate_by_name=False,
-        validate_by_name=False,
         allow_inf_nan=False,
         str_strip_whitespace=True,
     )
@@ -187,21 +157,20 @@ class ContainerStats(BeszelModel):
     memory: float | None = Field(default=None, alias="m")
 
 
-class SystemDetailView(BeszelModel):
+class SystemDetailView(BaseModel):
     summary: SystemSummary
     details: SystemDetails | None = None
     metrics: SystemMetrics | None = None
     containers: list[ContainerStats] = Field(default_factory=list)
 
 
-class SystemHistoryPoint(BeszelModel):
+class SystemHistoryPoint(BaseModel):
     created: datetime
     stats: dict[str, Any] = Field(default_factory=dict)
 
 
-class SystemHistoryView(BeszelModel):
+class SystemHistoryView(BaseModel):
     summary: SystemSummary
     range: HistoryRange
     points: list[SystemHistoryPoint] = Field(default_factory=list)
-    has_gaps: bool = False
     details: SystemDetails | None = None

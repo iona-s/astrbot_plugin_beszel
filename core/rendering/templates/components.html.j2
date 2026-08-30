@@ -90,12 +90,6 @@
             {{ header.memory_text }}
           </span>
           {% endif %}
-          {% if not (header.connection_address or header.uptime_text or header.os_text or header.cpu_text or header.memory_text) %}
-          {% for item in header.metadata %}
-          <span class="info-divider"></span>
-          <span class="info-item">{{ item.label }}: {{ item.value }}</span>
-          {% endfor %}
-          {% endif %}
         </div>
       </div>
     </div>
@@ -105,19 +99,6 @@
       <span>{{ header.range_label }}</span>
     </div>
     {% endif %}
-  </div>
-</div>
-{%- endmacro %}
-
-{% macro progress_metric(metric) -%}
-<div class="metric">
-  <div class="metric-label-row">
-    <span class="metric-label">{{ metric.label }}</span>
-    <span class="metric-value">{{ metric.value_text }}</span>
-  </div>
-  {% if metric.secondary_text %}<div class="metric-secondary">{{ metric.secondary_text }}</div>{% endif %}
-  <div class="track">
-    <div class="fill" style="background: {{ metric.color | color_css }}; width: {{ metric.value | percentage_width(metric.maximum) }}"></div>
   </div>
 </div>
 {%- endmacro %}

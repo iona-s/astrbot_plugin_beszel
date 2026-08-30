@@ -27,7 +27,6 @@ class PytakumiEngine:
         if glyph_cache_bytes < 0:
             raise RenderingError("渲染缓存预算不能为负数")
         self.stylesheet = stylesheet
-        self.glyph_cache_bytes = glyph_cache_bytes
         self.font_family: str
         try:
             pytakumi.set_glyph_cache_max_bytes(glyph_cache_bytes)
@@ -66,7 +65,7 @@ class PytakumiEngine:
             raise RenderingError("图片渲染结果不是有效 PNG")
         return png
 
-    def _render_native(self, source, *, width: int, height: int | None = None) -> bytes:
+    def _render_native(self, source, *, width: int, height: int | None) -> bytes:
         return self._renderer.render(
             source,
             width=width,

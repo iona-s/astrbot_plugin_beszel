@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from itertools import pairwise
-
 from astrbot.api import logger
 
 from ..errors import AmbiguousSystemError, SystemNotFoundError
@@ -38,9 +36,18 @@ class QueryService:
         return sorted_systems
 
     async def get_overview(self) -> list[SystemSummary]:
-        systems = await self.list_systems()
-        logger.debug("QueryService.get_overview: retrieved %d systems", len(systems))
-        return systems
+        systems = await self.client.list_systems()
+        sorted_systems = sorted(
+            systems,
+            key=lambda system: (
+                0 if status_state(system.status) == "up" else 1,
+                system.name.casefold(),
+            ),
+        )
+        logger.debug(
+            "QueryService.get_overview: retrieved %d systems", len(sorted_systems)
+        )
+        return sorted_systems
 
     async def get_system_detail(self, selector: str) -> SystemDetailView:
         logger.debug("QueryService.get_system_detail: selector=%s", selector)
@@ -84,8 +91,6 @@ class QueryService:
             self.default_history_range
             if history_range is None
             else HistoryRange.parse(history_range)
-            if isinstance(history_range, str)
-            else history_range
         )
         logger.debug(
             "QueryService.get_system_history: selected system %s (id=%s), parsed_range=%s",
@@ -99,16 +104,11 @@ class QueryService:
             for point in metrics
             if point.created is not None
         ]
-        has_gaps = any(
-            (right.created - left.created) > parsed_range.expected_interval * 1.5
-            for left, right in pairwise(points)
-        )
         logger.debug(
-            "QueryService.get_system_history: id=%s range=%s returned %d points (has_gaps=%s)",
+            "QueryService.get_system_history: id=%s range=%s returned %d points",
             system.id,
             parsed_range.value,
             len(points),
-            has_gaps,
         )
         system_details = None
         try:
@@ -123,7 +123,6 @@ class QueryService:
             summary=system,
             range=parsed_range,
             points=points,
-            has_gaps=has_gaps,
             details=system_details,
         )
 
