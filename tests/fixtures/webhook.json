@@ -1,0 +1,59 @@
+{
+  "auth": {
+    "token": "fixture-webhook-token",
+    "valid": "Bearer fixture-webhook-token",
+    "invalid": "Bearer wrong-fixture-token",
+    "missing": ""
+  },
+  "server": {"path": "/notify", "denied_origin": "fixture:denied", "fallback_origin": "fixture:origin"},
+  "request_ids": {
+    "generic": "fixture-generic",
+    "uptime": "fixture-uptime",
+    "plain": "fixture-plain",
+    "history": "fixture-history",
+    "invalid": "fixture-invalid"
+  },
+  "generic_json": {
+    "content_type": "application/json; charset=utf-8",
+    "headers": {"X-Webhook-Source": "generic"},
+    "body": {
+      "title": "Fixture alert",
+      "message": "Synthetic notification body",
+      "send_history": "true"
+    }
+  },
+  "beszel_history": {
+    "content_type": "application/json",
+    "headers": {},
+    "body": {
+      "source": "beszel",
+      "title": "Atlas Gateway threshold exceeded",
+      "message": "Open /system/pubatlas0000001 for details",
+      "send_history": true
+    }
+  },
+  "uptime_kuma": {
+    "content_type": "application/json",
+    "headers": {},
+    "body": {
+      "heartbeat": {"status": 0},
+      "monitor": {"name": "Fixture API"},
+      "msg": "Connection failed"
+    }
+  },
+  "plain_text": {
+    "content_type": "text/plain",
+    "headers": {},
+    "body": "Fixture plain text notification"
+  },
+  "malformed_json": {
+    "content_type": "application/json",
+    "headers": {},
+    "body": {"title": "Missing message"}
+  },
+  "unsupported_media": {
+    "content_type": "multipart/form-data; boundary=fixture",
+    "headers": {},
+    "body": "field=value"
+  }
+}

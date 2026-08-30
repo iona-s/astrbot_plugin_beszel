@@ -37,7 +37,8 @@
 ```text
 ruff check --config ruff.toml .
 ruff format --check --config ruff.toml .
-python -m compileall -q main.py core
+python -m compileall -q main.py core tests
+python -m pytest
 pre-commit run --all-files --show-diff-on-failure
 ```
 

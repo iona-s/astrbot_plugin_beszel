@@ -1,0 +1,90 @@
+{
+  "minimal": {},
+  "complete": {
+    "beszel": {
+      "base_url": "https://hub.fixture.example/",
+      "email": "reader@fixture.example",
+      "password": "fixture-password",
+      "timeout_seconds": 30,
+      "verify_tls": false,
+      "history_default_range": "12H"
+    },
+    "access": {
+      "mode": "umo_allowlist",
+      "allowed_umos": ["  aiocqhttp:group:fixture  ", ""]
+    },
+    "display": {"timezone": "Asia/Shanghai"},
+    "render": {
+      "page_size": 10,
+      "show_connection_address": true,
+      "font_path": "  /tmp/fixture-font.otf  "
+    },
+    "webhook": {
+      "enabled": true,
+      "host": "127.0.0.1",
+      "port": 18089,
+      "path": "notify",
+      "token": "fixture-webhook-token",
+      "target_umos": ["aiocqhttp:group:fixture", ""]
+    }
+  },
+  "inherited_timezone": {
+    "display": {"timezone": ""}
+  },
+  "generated_webhook_token": {
+    "webhook": {
+      "enabled": true,
+      "token": "",
+      "target_umos": ["aiocqhttp:group:fixture"]
+    }
+  },
+  "astrbot_timezone": "Australia/Sydney",
+  "expected": {
+    "minimal": {
+      "base_url": "http://127.0.0.1:8090",
+      "timeout_seconds": 10,
+      "history_default_range": "1h",
+      "access_mode": "admin_only",
+      "page_size": 20,
+      "webhook_enabled": false
+    },
+    "complete": {
+      "base_url": "https://hub.fixture.example",
+      "history_default_range": "12h",
+      "allowed_umos": ["aiocqhttp:group:fixture"],
+      "timezone": "Asia/Shanghai",
+      "font_path": "/tmp/fixture-font.otf",
+      "webhook_path": "/notify",
+      "webhook_enabled": true,
+      "webhook_token": "fixture-webhook-token",
+      "webhook_target_umos": ["aiocqhttp:group:fixture"]
+    },
+    "inherited_timezone": "Australia/Sydney"
+  },
+  "invalid": [
+    {
+      "name": "base_url",
+      "raw": {"beszel": {"base_url": "ftp://hub.fixture.example"}}
+    },
+    {
+      "name": "timeout",
+      "raw": {"beszel": {"timeout_seconds": 1}}
+    },
+    {
+      "name": "history_range",
+      "raw": {"beszel": {"history_default_range": "2h"}}
+    },
+    {
+      "name": "access_mode",
+      "raw": {"access": {"mode": "future_mode"}}
+    },
+    {
+      "name": "timezone",
+      "raw": {"display": {"timezone": "Mars/Olympus"}}
+    },
+    {
+      "name": "page_size",
+      "raw": {"render": {"page_size": 9}}
+    }
+  ]
+}

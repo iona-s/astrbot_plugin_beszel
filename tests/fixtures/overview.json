@@ -1,0 +1,186 @@
+[
+  {
+    "id": "pubatlas0000001",
+    "name": "Atlas Gateway",
+    "status": "up",
+    "updated": "2026-08-15T13:00:00Z",
+    "host": "atlas.demo.example",
+    "port": 45876,
+    "info": {
+      "bb": 182300,
+      "cpu": 6.4,
+      "ct": 2,
+      "dp": 42.3,
+      "la": [0.22, 0.18, 0.14],
+      "mp": 38.7,
+      "sv": [24, 0],
+      "t": 4,
+      "u": 4321000,
+      "v": "0.18.8"
+    }
+  },
+  {
+    "id": "pubboreal000002",
+    "name": "Borealis Compute",
+    "status": "up",
+    "updated": "2026-08-15T12:59:40Z",
+    "host": "borealis.demo.example",
+    "port": 45876,
+    "info": {
+      "bb": 2840000,
+      "cpu": 27.8,
+      "ct": 2,
+      "dp": 31.9,
+      "la": [1.4, 1.1, 0.9],
+      "mp": 67.2,
+      "t": 8,
+      "u": 1234567,
+      "v": "0.18.8"
+    }
+  },
+  {
+    "id": "pubcedar0000003",
+    "name": "Cedar Storage",
+    "status": "up",
+    "updated": "2026-08-15T12:59:20Z",
+    "host": "cedar.demo.example",
+    "port": 45876,
+    "info": {
+      "bb": 785000,
+      "cpu": 13.6,
+      "ct": 2,
+      "dp": 78.4,
+      "dt": 47.6,
+      "efs": {
+        "Archive": 82.1,
+        "Projects": 64.2
+      },
+      "la": [6.8, 4.2, 2.8],
+      "mp": 54.1,
+      "sv": [42, 2],
+      "t": 8,
+      "u": 8643210,
+      "v": "0.18.8"
+    }
+  },
+  {
+    "id": "pubdelta0000004",
+    "name": "Delta Lab",
+    "status": "up",
+    "updated": "2026-08-15T12:59:55Z",
+    "host": "delta.demo.example",
+    "port": 45876,
+    "info": {
+      "bat": [76, 1],
+      "bb": 18000000,
+      "cpu": 58.7,
+      "ct": 2,
+      "dp": 61.5,
+      "dt": 67.2,
+      "efs": {
+        "Archive": 80.0,
+        "Projects": 64.2
+      },
+      "g": 72.5,
+      "la": [7.2, 5.6, 4.3],
+      "mp": 62.4,
+      "t": 16,
+      "u": 604812,
+      "v": "0.18.8"
+    }
+  },
+  {
+    "id": "pubecho00000005",
+    "name": "Echo Mini",
+    "status": "up",
+    "updated": "2026-08-15T12:59:10Z",
+    "host": "echo.demo.example",
+    "port": 45876,
+    "info": {
+      "bb": 42100,
+      "cpu": 2.9,
+      "ct": 2,
+      "dp": 18.7,
+      "la": [0.05, 0.08, 0.11],
+      "mp": 24.6,
+      "t": 2,
+      "u": 2123456,
+      "v": "0.18.8"
+    }
+  },
+  {
+    "id": "pubgalaxy000006",
+    "name": "星河节点",
+    "status": "up",
+    "updated": "2026-08-15T12:59:35Z",
+    "host": "galaxy.demo.example",
+    "port": 45876,
+    "info": {
+      "bb": 963000,
+      "cpu": 18.2,
+      "ct": 2,
+      "dp": 52.8,
+      "dt": 51.4,
+      "la": [0.86, 0.71, 0.39],
+      "mp": 58.9,
+      "sv": [31, 0],
+      "t": 4,
+      "u": 1582951,
+      "v": "0.18.8"
+    }
+  },
+  {
+    "id": "pubspruce000007",
+    "name": "云杉工作站",
+    "status": "up",
+    "updated": "2026-08-15T12:59:50Z",
+    "host": "spruce.demo.example",
+    "port": 45876,
+    "info": {
+      "bat": [41, 0],
+      "bb": 6320000,
+      "cpu": 34.5,
+      "ct": 2,
+      "dp": 47.6,
+      "dt": 72.8,
+      "g": 46.3,
+      "la": [2.4, 1.6, 1.1],
+      "mp": 73.8,
+      "t": 12,
+      "u": 98214,
+      "v": "0.18.8"
+    }
+  },
+  {
+    "id": "pubharbor000008",
+    "name": "Harbor Backup",
+    "status": "down",
+    "updated": "2026-08-14T21:36:00Z",
+    "host": "harbor.demo.example",
+    "port": 45876,
+    "info": {
+      "bb": 0,
+      "cpu": 4.1,
+      "ct": 2,
+      "dp": 69.4,
+      "la": [0.12, 0.09, 0.07],
+      "mp": 35.2,
+      "t": 4,
+      "u": 7564321,
+      "v": "0.18.8"
+    }
+  },
+  {
+    "id": "pubnimbus000009",
+    "name": "Nimbus Standby",
+    "status": "paused",
+    "updated": "2026-08-15T10:30:00Z",
+    "host": "nimbus.demo.example",
+    "port": 45876,
+    "info": {
+      "t": 2,
+      "u": 345600,
+      "v": "0.18.8"
+    }
+  }
+]

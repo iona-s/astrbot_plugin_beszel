@@ -1,0 +1,10 @@
+{
+  "selectors": {
+    "id_case_insensitive": "PUBATLAS0000001",
+    "name_with_whitespace": " atlas gateway ",
+    "ambiguous": "atlas",
+    "missing": "missing fixture system"
+  },
+  "detail_system_id": "pubdelta0000004",
+  "history_range_input": "12H"
+}

@@ -36,6 +36,9 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install \
             "astrbot>=4.25,<5" \
+            "pytest>=9,<10" \
+            "pytest-asyncio>=1,<2" \
+            "pytest-cov>=7,<8" \
             "pre-commit>=4,<5" \
             "pyyaml>=6,<7" \
             --requirement requirements.txt
@@ -47,7 +50,14 @@ jobs:
         run: pre-commit run --all-files --show-diff-on-failure
 
       - name: Compile Python sources
-        run: python -m compileall -q main.py core
+        run: python -m compileall -q main.py core tests
+
+      - name: Run tests
+        run: >-
+          python -m pytest
+          --cov=astrbot_plugin_beszel
+          --cov-branch
+          --cov-report=term-missing
 
       - name: Validate release metadata
         shell: bash
@@ -173,10 +183,15 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install \
             "astrbot==4.25.0" \
+            "pytest>=9,<10" \
+            "pytest-asyncio>=1,<2" \
             --requirement requirements.txt
 
       - name: Check installed dependencies
         run: python -m pip check
+
+      - name: Run tests
+        run: python -m pytest
 
       - name: Verify AstrBot version and plugin import
         run: |

@@ -1,0 +1,10 @@
+{
+  "metrics_without_stats": {"cpu": 50},
+  "container_extra_fields": {
+    "n": "fixture-container",
+    "c": 4.2,
+    "m": 512,
+    "display_name": "legacy alias",
+    "cpu_percent": 4.2
+  }
+}

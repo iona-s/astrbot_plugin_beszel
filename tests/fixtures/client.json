@@ -1,0 +1,41 @@
+{
+  "responses": {
+    "auth": {"status": 200, "body": {"token": "fixture-client-token"}},
+    "systems": {"status": 200, "body": {"totalPages": 2, "items": []}},
+    "details": {"status": 200, "body": {}},
+    "metrics": {"status": 200, "body": {"totalPages": 1, "items": []}},
+    "containers": {
+      "status": 200,
+      "body": {"totalPages": 1, "items": [{"stats": []}]}
+    },
+    "history": {"status": 200, "body": {"totalPages": 1, "items": []}}
+  },
+  "systems_pages": [
+    {"totalPages": 2, "items_source": "overview.json", "start": 0, "end": 5},
+    {"totalPages": 2, "items_source": "overview.json", "start": 5, "end": 9}
+  ],
+  "details_source": "status.json",
+  "metrics_source": "status.json",
+  "containers_source": "status.json",
+  "history_source": "history_1h.json",
+  "system_id": "pubdelta0000004",
+  "expected_requests": {
+    "login_body": {
+      "identity": "reader@fixture.example",
+      "password": "fixture-password"
+    },
+    "systems_fields": "id,name,status,updated,info,host,port"
+  },
+  "retry_probe": {
+    "path": "/fixture-probe",
+    "first": {"status": 401, "body": {"message": "fixture retry"}},
+    "second": {"status": 200, "body": {"ok": true}}
+  },
+  "alias_case": {"totalPages": 3, "items": [{"id": "fixture"}], "page": 1},
+  "default_error": {"path": "/fixture-error", "status": 404, "body": {"message": "fixture not found"}},
+  "errors": {
+    "unauthorized": {"status": 401, "body": {"message": "fixture unauthorized"}},
+    "forbidden": {"status": 403, "body": {"message": "fixture forbidden"}},
+    "server_error": {"status": 500, "body": {"message": "fixture failure"}}
+  }
+}

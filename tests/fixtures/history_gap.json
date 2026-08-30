@@ -1,0 +1,18 @@
+{
+  "summary": {
+    "id": "pubdelta0000004",
+    "name": "Delta Lab",
+    "status": "up",
+    "updated": "2026-08-15T13:00:00Z",
+    "host": "delta.demo.example",
+    "port": 45876,
+    "info": {"cpu": 48.52, "mp": 60.42, "dp": 61.51, "u": 604812, "v": "0.18.8"}
+  },
+  "range": "1h",
+  "points": [
+    {"created": "2026-08-15T12:00:00Z", "stats": {"cpu": 38.0}},
+    {"created": "2026-08-15T12:01:00Z", "stats": {"cpu": 39.0}},
+    {"created": "2026-08-15T12:10:00Z", "stats": {"cpu": 42.0}}
+  ],
+  "details": null
+}
