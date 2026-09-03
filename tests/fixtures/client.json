@@ -27,9 +27,9 @@
     "systems_fields": "id,name,status,updated,info,host,port"
   },
   "retry_probe": {
-    "path": "/fixture-probe",
+    "path": "/api/collections/systems/records",
     "first": {"status": 401, "body": {"message": "fixture retry"}},
-    "second": {"status": 200, "body": {"ok": true}}
+    "second": {"status": 200, "body": {"totalPages": 1, "items": []}}
   },
   "alias_case": {"totalPages": 3, "items": [{"id": "fixture"}], "page": 1},
   "default_error": {"path": "/fixture-error", "status": 404, "body": {"message": "fixture not found"}},

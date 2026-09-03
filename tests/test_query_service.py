@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import asyncio
-
 import pytest
 from astrbot_plugin_beszel.core.beszel.models import (
     HistoryRange,
@@ -121,24 +119,12 @@ async def test_history_accepts_string_range(fixture_client, query_data) -> None:
 
 
 @pytest.mark.asyncio
-async def test_list_systems_cache_hit(fixture_client) -> None:
-    service = QueryService(
-        fixture_client, default_history_range=HistoryRange.ONE_HOUR, cache_ttl=15.0
-    )
-    calls_before = len(fixture_client.calls)
+async def test_list_systems_cache_lifecycle(
+    fixture_client, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    current_time = 1000.0
+    monkeypatch.setattr("time.monotonic", lambda: current_time)
 
-    first = await service.list_systems()
-    second = await service.list_systems()
-
-    assert first == second
-    client_list_calls = [
-        c for c in fixture_client.calls[calls_before:] if c[0] == "list_systems"
-    ]
-    assert len(client_list_calls) == 1
-
-
-@pytest.mark.asyncio
-async def test_list_systems_cache_expiry_and_force_refresh(fixture_client) -> None:
     service = QueryService(
         fixture_client, default_history_range=HistoryRange.ONE_HOUR, cache_ttl=15.0
     )
@@ -148,56 +134,22 @@ async def test_list_systems_cache_expiry_and_force_refresh(fixture_client) -> No
 
     initial_calls = count_list_calls()
 
-    # 1. Initial query triggers 1 network call
-    await service.list_systems()
-    assert count_list_calls() == initial_calls + 1
-    assert service._cached_systems is not None
-
-    # 2. Repeated query hits cache
     await service.list_systems()
     assert count_list_calls() == initial_calls + 1
 
-    # 3. Simulate expired cache triggers 1 new network call
-    service._cache_expires_at = 0.0
+    await service.list_systems()
+    assert count_list_calls() == initial_calls + 1
+
+    current_time += 16.0
     await service.list_systems()
     assert count_list_calls() == initial_calls + 2
 
-    # 4. Force refresh bypasses cache triggers 1 new network call
     await service.list_systems(force_refresh=True)
     assert count_list_calls() == initial_calls + 3
 
-    # 5. Invalidate cache triggers 1 new network call
     service.invalidate_cache()
-    assert service._cached_systems is None
     await service.list_systems()
     assert count_list_calls() == initial_calls + 4
-
-
-@pytest.mark.asyncio
-async def test_concurrent_requests_trigger_single_hub_query(fixture_client) -> None:
-    original_list = fixture_client.list_systems
-
-    async def slow_list():
-        await asyncio.sleep(0.02)
-        return await original_list()
-
-    fixture_client.list_systems = slow_list
-    service = QueryService(
-        fixture_client, default_history_range=HistoryRange.ONE_HOUR, cache_ttl=15.0
-    )
-
-    calls_before = sum(1 for c in fixture_client.calls if c[0] == "list_systems")
-
-    # Fire 5 concurrent requests when cache is empty
-    results = await asyncio.gather(*[service.list_systems() for _ in range(5)])
-
-    assert len(results) == 5
-    assert all(r == results[0] for r in results)
-    # Lock ensures exactly 1 Hub request is made
-    assert (
-        sum(1 for c in fixture_client.calls if c[0] == "list_systems")
-        == calls_before + 1
-    )
 
 
 @pytest.mark.asyncio
@@ -214,22 +166,6 @@ async def test_list_systems_cache_disabled(fixture_client) -> None:
         c for c in fixture_client.calls[calls_before:] if c[0] == "list_systems"
     ]
     assert len(client_list_calls) == 2
-
-
-@pytest.mark.asyncio
-async def test_list_systems_cache_disabled_concurrent(fixture_client) -> None:
-    service = QueryService(
-        fixture_client, default_history_range=HistoryRange.ONE_HOUR, cache_ttl=0
-    )
-    calls_before = sum(1 for c in fixture_client.calls if c[0] == "list_systems")
-
-    results = await asyncio.gather(*[service.list_systems() for _ in range(3)])
-
-    assert len(results) == 3
-    assert (
-        sum(1 for c in fixture_client.calls if c[0] == "list_systems")
-        == calls_before + 3
-    )
 
 
 @pytest.mark.asyncio

@@ -56,7 +56,7 @@ def test_templates_render_fixture_documents(
 
 @pytest.mark.asyncio
 async def test_pytakumi_renders_fixture_views_to_png(
-    overview_data, status_data, history_data, rendering_data, tmp_path
+    overview_data, status_data, history_data, rendering_data
 ) -> None:
     renderer = _renderer(rendering_data)
     try:
@@ -74,9 +74,5 @@ async def test_pytakumi_renders_fixture_views_to_png(
         assert all(
             png.startswith(b"\x89PNG\r\n\x1a\n") and len(png) > 1024 for png in outputs
         )
-        for index, png in enumerate(outputs):
-            path = tmp_path / f"fixture-{index}.png"
-            path.write_bytes(png)
-            assert path.stat().st_size == len(png)
     finally:
         renderer.close()

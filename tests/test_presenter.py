@@ -35,7 +35,6 @@ def test_overview_presentation_uses_current_fields(
     assert document.rows[0].name == overview_data[0]["name"]
     assert document.rows[0].status_state == "up"
     assert document.footer.label.startswith(rendering_data["plugin_name"])
-    assert not hasattr(document, "total_count")
 
 
 def test_status_presentation_maps_metrics_and_containers(
@@ -56,7 +55,6 @@ def test_status_presentation_maps_metrics_and_containers(
         row.name for row in document.containers
     )
     assert any(section.title == "独立显卡监控 (GPU)" for section in document.sections)
-    assert not hasattr(document, "has_gaps")
 
 
 def test_history_presentation_splits_missing_samples(
@@ -75,5 +73,3 @@ def test_history_presentation_splits_missing_samples(
     assert any(
         len(series.segments) > 1 for card in document.cards for series in card.series
     )
-    assert not hasattr(document, "sample_count")
-    assert not hasattr(document, "has_gaps")

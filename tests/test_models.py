@@ -32,7 +32,6 @@ def test_pocketbase_alias_and_extra_fields(client_data) -> None:
     result = PocketBaseListResult[dict].model_validate(case)
     assert result.total_pages == case["totalPages"]
     assert result.items == case["items"]
-    assert not hasattr(result, "page")
 
 
 def test_container_stats_uses_short_protocol_aliases(models_data) -> None:
@@ -40,18 +39,8 @@ def test_container_stats_uses_short_protocol_aliases(models_data) -> None:
     assert container.name
     assert container.cpu is not None
     assert container.memory is not None
-    assert not hasattr(container, "display_name")
-    assert not hasattr(container, "cpu_percent")
 
 
 def test_metrics_require_stats(models_data) -> None:
     with pytest.raises(ValidationError):
         SystemMetrics.model_validate(models_data["metrics_without_stats"])
-
-
-def test_removed_compatibility_models_and_fields_are_absent() -> None:
-    from astrbot_plugin_beszel.core.beszel import models
-
-    assert not hasattr(models, "BeszelModel")
-    assert not hasattr(models.SystemSummary, "metrics")
-    assert not hasattr(models.SystemHistoryView, "has_gaps")

@@ -73,9 +73,12 @@ def test_beszel_history_notification_attaches_known_system(
     assert attached.history_system_id == overview_data[0]["id"]
 
 
-@pytest.mark.parametrize("case_name", ["malformed_json", "unsupported_media"])
+@pytest.mark.parametrize(
+    ("case_name", "expected_status"),
+    [("malformed_json", 400), ("unsupported_media", 415)],
+)
 def test_invalid_webhook_payloads_return_explicit_status(
-    webhook_data, case_name: str
+    webhook_data, case_name: str, expected_status: int
 ) -> None:
     case = webhook_data[case_name]
     with pytest.raises(WebhookPayloadError) as exc_info:
@@ -85,7 +88,7 @@ def test_invalid_webhook_payloads_return_explicit_status(
             headers=case["headers"],
             request_id=webhook_data["request_ids"]["invalid"],
         )
-    assert exc_info.value.status in {400, 415}
+    assert exc_info.value.status == expected_status
 
 
 class _FakeRequest:

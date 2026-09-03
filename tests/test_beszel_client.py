@@ -6,6 +6,7 @@ from copy import deepcopy
 from urllib.parse import urlsplit
 
 import pytest
+from astrbot_plugin_beszel.core.beszel import client as client_module
 from astrbot_plugin_beszel.core.beszel.client import BeszelClient
 from astrbot_plugin_beszel.core.beszel.models import HistoryRange
 from astrbot_plugin_beszel.core.config import BeszelConfig
@@ -83,6 +84,17 @@ def _fixture_config(config_data) -> BeszelConfig:
     )
 
 
+def _client_with_session(
+    config_data,
+    session: FixtureSession,
+    monkeypatch: pytest.MonkeyPatch,
+) -> BeszelClient:
+    monkeypatch.setattr(
+        client_module.aiohttp, "ClientSession", lambda **_kwargs: session
+    )
+    return BeszelClient(_fixture_config(config_data))
+
+
 def _session_for_fixtures(overview_data, status_data, history_data, client_data):
     overview_pages = client_data["systems_pages"]
     systems = overview_data
@@ -127,13 +139,17 @@ def _session_for_fixtures(overview_data, status_data, history_data, client_data)
 
 @pytest.mark.asyncio
 async def test_client_authenticates_paginates_and_models_fixture_responses(
-    overview_data, status_data, history_data, client_data, config_data
+    overview_data,
+    status_data,
+    history_data,
+    client_data,
+    config_data,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    client = BeszelClient(_fixture_config(config_data))
     session = _session_for_fixtures(
         overview_data, status_data, history_data, client_data
     )
-    client._session = session
+    client = _client_with_session(config_data, session, monkeypatch)
 
     systems = await client.list_systems()
     system_id = client_data["system_id"]
@@ -176,7 +192,9 @@ async def test_client_authenticates_paginates_and_models_fixture_responses(
 
 
 @pytest.mark.asyncio
-async def test_client_retries_once_after_unauthorized(client_data, config_data) -> None:
+async def test_client_retries_once_after_unauthorized(
+    client_data, config_data, monkeypatch: pytest.MonkeyPatch
+) -> None:
     calls = defaultdict(int)
 
     def response_factory(request: dict) -> _FakeResponse:
@@ -191,38 +209,45 @@ async def test_client_retries_once_after_unauthorized(client_data, config_data) 
         error = client_data["default_error"]
         return _FakeResponse(error["status"], error["body"])
 
-    client = BeszelClient(_fixture_config(config_data))
     session = FixtureSession(response_factory)
-    client._session = session
-    result = await client._request_json("GET", client_data["retry_probe"]["path"])
+    client = _client_with_session(config_data, session, monkeypatch)
+    systems = await client.list_systems()
+    await client.close()
 
-    assert result == client_data["retry_probe"]["second"]["body"]
+    assert systems == []
     assert calls[client_data["retry_probe"]["path"]] == 2
     assert (
         sum(item["path"].endswith("auth-with-password") for item in session.requests)
-        == 1
+        == 2
     )
-    await client.close()
+    assert session.closed is True
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("case", ["forbidden", "server_error"])
-async def test_client_maps_http_errors(case: str, client_data, config_data) -> None:
+async def test_client_maps_http_errors(
+    case: str,
+    client_data,
+    config_data,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     response = client_data["errors"][case]
     expected = {
         "forbidden": BeszelAuthError,
         "server_error": BeszelTransportError,
     }[case]
 
-    def response_factory(_request: dict) -> _FakeResponse:
+    def response_factory(request: dict) -> _FakeResponse:
+        if request["path"].endswith("/auth-with-password"):
+            auth = client_data["responses"]["auth"]
+            return _FakeResponse(auth["status"], auth["body"])
         return _FakeResponse(response["status"], response["body"])
 
-    client = BeszelClient(_fixture_config(config_data))
-    client._session = FixtureSession(response_factory)
-    client._token = client_data["responses"]["auth"]["body"]["token"]
+    session = FixtureSession(response_factory)
+    client = _client_with_session(config_data, session, monkeypatch)
 
     with pytest.raises(expected) as exc_info:
-        await client._request_json("GET", client_data["default_error"]["path"])
+        await client.list_systems()
     if isinstance(exc_info.value, BeszelTransportError):
         assert exc_info.value.status_code == response["status"]
     await client.close()
