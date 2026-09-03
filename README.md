@@ -109,6 +109,7 @@
 - **`timeout_seconds`**：请求超时时间（秒，默认 `10`）
 - **`verify_tls`**：是否验证 TLS 证书（默认 `true`；使用自签名证书时可设为 `false`）
 - **`history_default_range`**：省略 range 参数时的默认历史跨度（默认 `1h`）
+- **`cache_ttl_seconds`**：探针列表内存缓存过期时间（秒，默认 `60`，范围 `0 ~ 300`，设为 `0` 禁用缓存）
 
 ### 2. `access`（权限控制）
 - **`mode`**：

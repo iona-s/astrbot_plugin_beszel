@@ -13,7 +13,8 @@
       },
       "timeout_seconds": {"type": "int", "description": "请求超时（秒）", "default": 10, "slider": {"min": 2, "max": 60, "step": 1}},
       "verify_tls": {"type": "bool", "description": "验证 TLS 证书", "default": true},
-      "history_default_range": {"type": "string", "description": "默认历史范围", "options": ["1h", "12h", "24h", "1w", "30d"], "default": "1h"}
+      "history_default_range": {"type": "string", "description": "默认历史范围", "options": ["1h", "12h", "24h", "1w", "30d"], "default": "1h"},
+      "cache_ttl_seconds": {"type": "int", "description": "探针列表缓存时长（秒）", "hint": "缓存探针列表以减少 Hub 请求；设为 0 即禁用缓存", "default": 60, "slider": {"min": 0, "max": 300, "step": 5}}
     }
   },
   "access": {

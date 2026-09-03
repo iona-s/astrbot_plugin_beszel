@@ -5,6 +5,12 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，并遵循
 [语义化版本 2.0.0](https://semver.org/lang/zh-CN/)。
 
+## [未发布]
+
+### 优化
+
+- 为探针列表查询增加可配置的短时内存 TTL 缓存（默认 60 秒），降低频繁查询对 Beszel Hub 的重复网络开销并加速连续指令响应。
+
 ## [v1.0.0] - 2026-08-30
 
 ### 新增
@@ -33,4 +39,5 @@
 - 日志严格隐藏密码、PocketBase Token、Webhook Token 和探针连接地址，保留排障所需的
   会话标识、主机名与监控指标。
 
+[未发布]: https://github.com/iona-s/astrbot_plugin_beszel/compare/v1.0.0...HEAD
 [v1.0.0]: https://github.com/iona-s/astrbot_plugin_beszel/releases/tag/v1.0.0

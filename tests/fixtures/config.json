@@ -7,7 +7,8 @@
       "password": "fixture-password",
       "timeout_seconds": 30,
       "verify_tls": false,
-      "history_default_range": "12H"
+      "history_default_range": "12H",
+      "cache_ttl_seconds": 120
     },
     "access": {
       "mode": "umo_allowlist",
@@ -38,6 +39,12 @@
       "target_umos": ["aiocqhttp:group:fixture"]
     }
   },
+  "cache_ttl_disabled": {
+    "beszel": {"cache_ttl_seconds": 0}
+  },
+  "cache_ttl_default_fallback": {
+    "beszel": {"cache_ttl_seconds": null}
+  },
   "astrbot_timezone": "Australia/Sydney",
   "expected": {
     "minimal": {
@@ -46,7 +53,8 @@
       "history_default_range": "1h",
       "access_mode": "admin_only",
       "page_size": 20,
-      "webhook_enabled": false
+      "webhook_enabled": false,
+      "cache_ttl_seconds": 60
     },
     "complete": {
       "base_url": "https://hub.fixture.example",
@@ -57,7 +65,8 @@
       "webhook_path": "/notify",
       "webhook_enabled": true,
       "webhook_token": "fixture-webhook-token",
-      "webhook_target_umos": ["aiocqhttp:group:fixture"]
+      "webhook_target_umos": ["aiocqhttp:group:fixture"],
+      "cache_ttl_seconds": 120
     },
     "inherited_timezone": "Australia/Sydney"
   },
@@ -85,6 +94,18 @@
     {
       "name": "page_size",
       "raw": {"render": {"page_size": 9}}
+    },
+    {
+      "name": "cache_ttl_negative",
+      "raw": {"beszel": {"cache_ttl_seconds": -1}}
+    },
+    {
+      "name": "cache_ttl_overflow",
+      "raw": {"beszel": {"cache_ttl_seconds": 301}}
+    },
+    {
+      "name": "cache_ttl_type",
+      "raw": {"beszel": {"cache_ttl_seconds": "15"}}
     }
   ]
 }

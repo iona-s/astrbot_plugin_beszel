@@ -59,6 +59,7 @@ class BeszelPlugin(Star):
             default_history_range=HistoryRange.parse(
                 self.config.beszel.history_default_range
             ),
+            cache_ttl=self.config.beszel.cache_ttl_seconds,
         )
         self.renderer = BeszelRenderer(
             plugin_name="astrbot_plugin_beszel",
@@ -108,6 +109,7 @@ class BeszelPlugin(Star):
             await self.webhook_server.start()
 
     async def terminate(self) -> None:
+        self.service.invalidate_cache()
         if self.webhook_server is not None:
             try:
                 await self.webhook_server.stop()

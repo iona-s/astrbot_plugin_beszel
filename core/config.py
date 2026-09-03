@@ -50,6 +50,7 @@ class BeszelConfig:
     timeout_seconds: int = 10
     verify_tls: bool = True
     history_default_range: str = "1h"
+    cache_ttl_seconds: int = 60
 
     @property
     def query_ready(self) -> bool:
@@ -127,6 +128,17 @@ class PluginConfig:
             raise ConfigurationError(
                 "beszel.history_default_range 默认历史范围不支持，可选值：1h, 12h, 24h, 1w, 30d"
             ) from exc
+        cache_ttl = beszel_raw.get("cache_ttl_seconds", 60)
+        if cache_ttl is None:
+            cache_ttl = 60
+        if (
+            isinstance(cache_ttl, bool)
+            or not isinstance(cache_ttl, int)
+            or not 0 <= cache_ttl <= 300
+        ):
+            raise ConfigurationError(
+                "beszel.cache_ttl_seconds 缓存过期时间必须在 0 到 300 秒之间"
+            )
 
         access_raw = _mapping(data.get("access"))
         mode = _opt_str(access_raw.get("mode"), "admin_only") or "admin_only"
@@ -210,6 +222,7 @@ class PluginConfig:
                 timeout_seconds=timeout,
                 verify_tls=bool(beszel_raw.get("verify_tls", True)),
                 history_default_range=default_range,
+                cache_ttl_seconds=cache_ttl,
             ),
             access=AccessConfig(
                 mode=mode,
