@@ -3,6 +3,8 @@
     "token": "fixture-webhook-token",
     "valid": "Bearer fixture-webhook-token",
     "invalid": "Bearer wrong-fixture-token",
+    "non_ascii": "Bearer 令牌-token",
+    "non_ascii_token": "非ASCII令牌",
     "missing": ""
   },
   "server": {"path": "/notify", "denied_origin": "fixture:denied", "fallback_origin": "fixture:origin"},
@@ -12,6 +14,12 @@
     "plain": "fixture-plain",
     "history": "fixture-history",
     "invalid": "fixture-invalid"
+  },
+  "delivery_notification": {
+    "title": "Fixture Delivery Title",
+    "message": "Synthetic delivery notification message",
+    "history_system_id": "pubatlas0000001",
+    "request_id": "fixture-delivery"
   },
   "generic_json": {
     "content_type": "application/json; charset=utf-8",

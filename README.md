@@ -52,19 +52,19 @@
   <table>
     <tr>
       <td align="center" colspan="2">
-        <img src="assets/overview.png" width="800" alt="Beszel 探针概览"/>
+        <img src="https://fastly.jsdelivr.net/gh/iona-s/astrbot_plugin_beszel@master/assets/overview.png" width="800" alt="Beszel 探针概览"/>
         <br/>
         <sub>探针概览</sub>
       </td>
     </tr>
     <tr>
       <td align="center" valign="top">
-        <img src="assets/status.png" width="400" alt="Beszel 单机详情"/>
+        <img src="https://fastly.jsdelivr.net/gh/iona-s/astrbot_plugin_beszel@master/assets/status.png" width="400" alt="Beszel 单机详情"/>
         <br/>
         <sub>单机详情</sub>
       </td>
       <td align="center" valign="top">
-        <img src="assets/history.png" width="400" alt="Beszel 一小时历史状态"/>
+        <img src="https://fastly.jsdelivr.net/gh/iona-s/astrbot_plugin_beszel@master/assets/history.png" width="400" alt="Beszel 一小时历史状态"/>
         <br/>
         <sub>一小时历史状态</sub>
       </td>
@@ -172,7 +172,7 @@ generic://127.0.0.1:8899/?template=json&disabletls=yes&@Authorization=Bearer%20<
 ```
 
 > 📌 **参数说明**：
-> - `<TOKEN>`：替换为插件配置中生成的 `webhook.token`；
+> - `<TOKEN>`：替换为插件配置中配置或自动生成的 `webhook.token`（需为 ASCII 字符）；
 > - `disabletls=yes`：直连内网 HTTP 端口时使用；若经由 HTTPS 反向代理请移除此项；
 > - `$source=beszel` 与 `$send_history=true`：**插件内部特殊触发参数**，用于显式声明来源并启用告警额外附带 1 小时历史监控图片。
 

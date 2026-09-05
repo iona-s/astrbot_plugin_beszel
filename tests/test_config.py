@@ -83,3 +83,17 @@ def test_cache_ttl_fixtures_support_disabled_and_fallback(config_data) -> None:
         fallback.beszel.cache_ttl_seconds
         == config_data["expected"]["minimal"]["cache_ttl_seconds"]
     )
+
+
+def test_non_ascii_webhook_token_disables_webhook_without_failing_queries(
+    config_data,
+) -> None:
+    config = PluginConfig.from_mapping(config_data["non_ascii_webhook_token"])
+
+    assert config.webhook.enabled is False
+    assert (
+        config.webhook.token
+        == config_data["non_ascii_webhook_token"]["webhook"]["token"]
+    )
+    assert config.webhook.token_generated is False
+    assert config.beszel.base_url == config_data["expected"]["minimal"]["base_url"]

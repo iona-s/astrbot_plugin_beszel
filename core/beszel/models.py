@@ -137,8 +137,19 @@ class SystemDetails(BaseModel):
             return None
 
 
+def _normalize_sample_stats(stats: Any) -> Any:
+    if isinstance(stats, dict) and stats and "b" not in stats:
+        return {**stats, "b": [0, 0]}
+    return stats
+
+
 class SystemMetrics(BaseModel):
     stats: dict[str, Any]
+
+    @field_validator("stats", mode="before")
+    @classmethod
+    def normalize_stats(cls, value: Any) -> Any:
+        return _normalize_sample_stats(value)
 
 
 class SystemHistoryMetrics(SystemMetrics):
@@ -167,6 +178,11 @@ class SystemDetailView(BaseModel):
 class SystemHistoryPoint(BaseModel):
     created: datetime
     stats: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("stats", mode="before")
+    @classmethod
+    def normalize_stats(cls, value: Any) -> Any:
+        return _normalize_sample_stats(value)
 
 
 class SystemHistoryView(BaseModel):

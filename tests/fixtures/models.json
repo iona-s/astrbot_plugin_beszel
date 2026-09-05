@@ -6,5 +6,22 @@
     "m": 512,
     "display_name": "legacy alias",
     "cpu_percent": 4.2
-  }
+  },
+  "sample_without_bandwidth": {
+    "stats": {"cpu": 25.0, "m": 16.0, "mu": 4.0}
+  },
+  "sample_explicit_zero_bandwidth": {
+    "stats": {"cpu": 25.0, "b": [0, 0]}
+  },
+  "sample_nonzero_bandwidth": {
+    "stats": {"cpu": 25.0, "b": [1024, 2048]}
+  },
+  "sample_malformed_bandwidth": {
+    "stats": {"cpu": 25.0, "b": "invalid"}
+  },
+  "consecutive_minute_points": [
+    {"created": "2026-08-15T12:00:00Z", "stats": {"cpu": 30.0, "b": [1000, 2000]}},
+    {"created": "2026-08-15T12:01:00Z", "stats": {"cpu": 25.0}},
+    {"created": "2026-08-15T12:02:00Z", "stats": {"cpu": 35.0, "b": [1500, 2500]}}
+  ]
 }

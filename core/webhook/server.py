@@ -78,8 +78,27 @@ class WebhookServer:
             if has_bearer
             else ("<empty>" if not auth else "<invalid>"),
         )
-        expected = f"Bearer {self.config.token}"
-        if not has_bearer or not secrets.compare_digest(auth, expected):
+        auth_bytes: bytes | None = None
+        if has_bearer:
+            try:
+                auth_bytes = auth.encode("ascii")
+            except UnicodeEncodeError:
+                auth_bytes = None
+
+        expected_bytes: bytes | None = None
+        try:
+            token_str = self.config.token or ""
+            expected_bytes = f"Bearer {token_str}".encode("ascii")
+        except UnicodeEncodeError:
+            expected_bytes = None
+
+        authenticated = (
+            has_bearer
+            and auth_bytes is not None
+            and expected_bytes is not None
+            and secrets.compare_digest(auth_bytes, expected_bytes)
+        )
+        if not authenticated:
             logger.debug("Webhook request id=%s failed authentication", request_id)
             return web.json_response(
                 {"request_id": request_id, "status": "unauthorized"}, status=401

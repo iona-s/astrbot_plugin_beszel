@@ -205,7 +205,13 @@ class PluginConfig:
         target_umos = _string_items(webhook_raw.get("target_umos", []))
         token = _opt_text(webhook_raw.get("token"))
         token_generated = False
-        if enabled and not token:
+        if token and not token.isascii():
+            if enabled:
+                logger.error(
+                    "Invalid webhook.token (must contain only ASCII characters); webhook service will be disabled"
+                )
+                enabled = False
+        elif enabled and not token:
             token = secrets.token_urlsafe(32)
             token_generated = True
         if enabled and not target_umos:

@@ -56,9 +56,16 @@ class WebhookDelivery:
         text_successes = text_failures = image_successes = image_failures = 0
         for target in self.config.target_umos:
             try:
-                await self.context.send_message(
+                sent = await self.context.send_message(
                     target, MessageChain([Plain(self._text(notification))])
                 )
+                if not sent:
+                    text_failures += 1
+                    logger.warning(
+                        "Webhook text delivery rejected or unhandled for target=%s",
+                        target,
+                    )
+                    continue
                 text_successes += 1
                 logger.debug("WebhookDelivery: text sent to target=%s", target)
             except Exception as exc:
@@ -69,16 +76,24 @@ class WebhookDelivery:
                     type(exc).__name__,
                 )
                 continue
+
             if image_bytes is not None:
                 try:
-                    await self.context.send_message(
+                    sent = await self.context.send_message(
                         target, MessageChain([Image.fromBytes(image_bytes)])
                     )
-                    image_successes += 1
-                    logger.debug(
-                        "WebhookDelivery: history image sent to target=%s",
-                        target,
-                    )
+                    if not sent:
+                        image_failures += 1
+                        logger.warning(
+                            "Webhook image delivery rejected or unhandled for target=%s",
+                            target,
+                        )
+                    else:
+                        image_successes += 1
+                        logger.debug(
+                            "WebhookDelivery: history image sent to target=%s",
+                            target,
+                        )
                 except Exception as exc:
                     image_failures += 1
                     logger.warning(

@@ -39,6 +39,13 @@
       "target_umos": ["aiocqhttp:group:fixture"]
     }
   },
+  "non_ascii_webhook_token": {
+    "webhook": {
+      "enabled": true,
+      "token": "非ASCII令牌",
+      "target_umos": ["aiocqhttp:group:fixture"]
+    }
+  },
   "cache_ttl_disabled": {
     "beszel": {"cache_ttl_seconds": 0}
   },

@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 import pytest
 from astrbot_plugin_beszel.core.beszel.models import (
     ContainerStats,
     HistoryRange,
     PocketBaseListResult,
     SystemDetailView,
+    SystemHistoryMetrics,
+    SystemHistoryPoint,
     SystemHistoryView,
     SystemMetrics,
     SystemSummary,
@@ -44,3 +48,37 @@ def test_container_stats_uses_short_protocol_aliases(models_data) -> None:
 def test_metrics_require_stats(models_data) -> None:
     with pytest.raises(ValidationError):
         SystemMetrics.model_validate(models_data["metrics_without_stats"])
+
+
+def test_omitted_bandwidth_is_normalized_to_zero_without_mutating_input(
+    models_data,
+) -> None:
+    raw_stats = dict(models_data["sample_without_bandwidth"]["stats"])
+    original_keys = tuple(raw_stats.keys())
+
+    metrics = SystemMetrics(stats=raw_stats)
+    assert metrics.stats["b"] == [0, 0]
+    assert "b" not in raw_stats
+    assert tuple(raw_stats.keys()) == original_keys
+
+    point = SystemHistoryPoint(
+        created=datetime(2026, 8, 15, 12, 0, tzinfo=UTC), stats=raw_stats
+    )
+    assert point.stats["b"] == [0, 0]
+    assert "b" not in raw_stats
+
+    history_metric = SystemHistoryMetrics(
+        created=datetime(2026, 8, 15, 12, 0, tzinfo=UTC), stats=raw_stats
+    )
+    assert history_metric.stats["b"] == [0, 0]
+
+
+def test_explicit_and_malformed_bandwidth_values_are_preserved(models_data) -> None:
+    zero = SystemMetrics.model_validate(models_data["sample_explicit_zero_bandwidth"])
+    assert zero.stats["b"] == [0, 0]
+
+    nonzero = SystemMetrics.model_validate(models_data["sample_nonzero_bandwidth"])
+    assert nonzero.stats["b"] == [1024, 2048]
+
+    malformed = SystemMetrics.model_validate(models_data["sample_malformed_bandwidth"])
+    assert malformed.stats["b"] == "invalid"

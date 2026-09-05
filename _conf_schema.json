@@ -61,6 +61,7 @@
       "token": {
         "type": "string",
         "description": "Bearer token（启用后留空自动生成）",
+        "hint": "仅支持 ASCII 字符；留空时将在启用后自动生成安全令牌",
         "default": ""
       },
       "target_umos": {"type": "list", "description": "通知目标 UMO", "items": {"type": "string"}, "default": []}
