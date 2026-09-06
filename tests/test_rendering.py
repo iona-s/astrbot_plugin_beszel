@@ -74,6 +74,8 @@ def test_templates_render_fixture_documents(
         assert status_data["summary"]["name"] in status_markup
         assert "1 小时" in history_markup
         assert overview_markup.lstrip().startswith("<!doctype html>")
+        assert ".table-meter-track" in templates.stylesheet
+        assert "border-radius: 9999px" in templates.stylesheet
     finally:
         renderer.close()
 
