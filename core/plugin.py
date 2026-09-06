@@ -66,6 +66,7 @@ class BeszelPlugin(Star):
             show_connection_address=self.config.render.show_connection_address,
             display_timezone=self.display_timezone,
             font_path=self.config.render.font_path,
+            container_history_threshold=self.config.render.container_history_threshold,
         )
         self.webhook_server: WebhookServer | None = None
 

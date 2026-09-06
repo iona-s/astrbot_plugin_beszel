@@ -47,6 +47,13 @@
         "description": "自定义字体文件路径（留空使用内置字体）",
         "hint": "填写 AstrBot 运行环境内可访问的 TTF、TTC、OTF、WOFF 或 WOFF2 字体文件路径；加载失败时回退到内置字体",
         "default": ""
+      },
+      "container_history_threshold": {
+        "type": "int",
+        "description": "容器历史过滤阈值（%）",
+        "hint": "容器该时间段峰值低于图表 Y 轴最大值此百分比时不绘制；0 为全显示，建议设置为 10-20",
+        "default": 10,
+        "slider": {"min": 0, "max": 50, "step": 1}
       }
     }
   },

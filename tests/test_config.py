@@ -97,3 +97,29 @@ def test_non_ascii_webhook_token_disables_webhook_without_failing_queries(
     )
     assert config.webhook.token_generated is False
     assert config.beszel.base_url == config_data["expected"]["minimal"]["base_url"]
+
+
+def test_container_history_threshold_config_parsing_and_validation() -> None:
+    # 1. Default threshold is 10
+    default_config = PluginConfig.from_mapping({})
+    assert default_config.render.container_history_threshold == 10
+
+    # 2. Explicit valid values (0, 20, 50)
+    for val in (0, 20, 50):
+        cfg = PluginConfig.from_mapping(
+            {"render": {"container_history_threshold": val}}
+        )
+        assert cfg.render.container_history_threshold == val
+
+    # 3. None falls back to default 10
+    cfg_none = PluginConfig.from_mapping(
+        {"render": {"container_history_threshold": None}}
+    )
+    assert cfg_none.render.container_history_threshold == 10
+
+    # 4. Invalid cases: negative, overflow (>50), boolean, string
+    for invalid in (-1, 51, 100, True, False, "10", 15.5):
+        with pytest.raises(ConfigurationError):
+            PluginConfig.from_mapping(
+                {"render": {"container_history_threshold": invalid}}
+            )

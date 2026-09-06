@@ -3,6 +3,8 @@ from __future__ import annotations
 from zoneinfo import ZoneInfo
 
 from astrbot_plugin_beszel.core.beszel.models import (
+    ContainerHistoryMetrics,
+    ContainerHistoryPoint,
     HistoryRange,
     SystemDetailView,
     SystemHistoryPoint,
@@ -10,6 +12,7 @@ from astrbot_plugin_beszel.core.beszel.models import (
     SystemMetrics,
     SystemSummary,
 )
+from astrbot_plugin_beszel.core.rendering.models import ChartUnit
 from astrbot_plugin_beszel.core.rendering.presenter import PresentationBuilder
 
 
@@ -127,3 +130,109 @@ def test_history_presentation_preserves_idle_middle_sample_without_false_gap(
         assert series.points[1].value == 0.0
         assert len(series.segments) == 1
         assert len(series.segments[0]) == 3
+
+
+def test_container_history_cards_generation_and_threshold_filtering(
+    history_data, container_history_data, rendering_data
+) -> None:
+    # Build container points from fixture (10 containers across timestamps)
+    container_points = []
+    for raw in container_history_data["records"]:
+        m = ContainerHistoryMetrics.model_validate(raw)
+        if m.created is not None:
+            container_points.append(
+                ContainerHistoryPoint(created=m.created, stats=m.stats)
+            )
+
+    view = SystemHistoryView.model_validate(history_data)
+    view.container_points = container_points
+    document = _builder(rendering_data).build_history(view)
+
+    # Check that container cards were appended after host cards
+    titles = [card.title for card in document.cards]
+    assert "容器 CPU 使用率" in titles
+    assert "容器内存使用" in titles
+    assert titles.index("容器 CPU 使用率") > titles.index("CPU 使用率")
+    assert titles.index("容器内存使用") > titles.index("内存使用")
+
+    cpu_card = next(c for c in document.cards if c.title == "容器 CPU 使用率")
+    mem_card = next(c for c in document.cards if c.title == "容器内存使用")
+
+    # Default threshold 10%: 6 containers kept, 4 omitted
+    assert len(cpu_card.series) == 6
+    assert len(mem_card.series) == 6
+    assert cpu_card.unit == ChartUnit.PERCENT
+    assert mem_card.unit == ChartUnit.BYTES
+
+    # extra_series_count indicates the omitted containers (10 total - 6 = 4)
+    assert cpu_card.extra_series_count == 4
+    assert mem_card.extra_series_count == 4
+
+    # Memory unit conversion: check that values are converted from MiB to bytes
+    db_mem_series = next(s for s in mem_card.series if s.name == "db")
+    assert db_mem_series.current_value is not None
+    # 2080 MiB in bytes is > 2 GB (2080 * 1024 * 1024)
+    assert db_mem_series.current_value >= 2000 * 1024 * 1024
+
+    # Color determinism: the same container name has the identical color in CPU and Memory cards
+    cpu_colors = {s.name: s.color for s in cpu_card.series}
+    mem_colors = {s.name: s.color for s in mem_card.series}
+    common_names = set(cpu_colors.keys()) & set(mem_colors.keys())
+    assert len(common_names) == 6  # all kept containers appear in both
+    for name in common_names:
+        assert cpu_colors[name] == mem_colors[name]
+
+    # Threshold = 0: full display of all 10 containers without omission
+    builder_all = PresentationBuilder(
+        plugin_name=rendering_data["plugin_name"],
+        show_connection_address=True,
+        display_timezone=ZoneInfo(rendering_data["display_timezone"]),
+        container_history_threshold=0,
+    )
+    doc_all = builder_all.build_history(view)
+    cpu_card_all = next(c for c in doc_all.cards if c.title == "容器 CPU 使用率")
+    mem_card_all = next(c for c in doc_all.cards if c.title == "容器内存使用")
+    assert len(cpu_card_all.series) == 10
+    assert cpu_card_all.extra_series_count == 0
+    assert len(mem_card_all.series) == 10
+    assert mem_card_all.extra_series_count == 0
+
+    # Threshold = 20%: stricter filtering
+    builder_20 = PresentationBuilder(
+        plugin_name=rendering_data["plugin_name"],
+        show_connection_address=True,
+        display_timezone=ZoneInfo(rendering_data["display_timezone"]),
+        container_history_threshold=20,
+    )
+    doc_20 = builder_20.build_history(view)
+    cpu_card_20 = next(c for c in doc_20.cards if c.title == "容器 CPU 使用率")
+    mem_card_20 = next(c for c in doc_20.cards if c.title == "容器内存使用")
+    assert len(cpu_card_20.series) == 5
+    assert cpu_card_20.extra_series_count == 5
+    assert len(mem_card_20.series) == 3
+    assert mem_card_20.extra_series_count == 7
+
+
+def test_container_history_gaps_and_empty_handling(
+    history_data, container_history_data, rendering_data
+) -> None:
+    # 1. Empty container history creates no container cards
+    view_empty = SystemHistoryView.model_validate(history_data)
+    view_empty.container_points = []
+    doc_empty = _builder(rendering_data).build_history(view_empty)
+    assert not any("容器" in card.title for card in doc_empty.cards)
+
+    # 2. Gap records: 15-minute gap in batch-job produces 2 distinct segments
+    gap_points = []
+    for raw in container_history_data["gap_records"]:
+        m = ContainerHistoryMetrics.model_validate(raw)
+        if m.created is not None:
+            gap_points.append(ContainerHistoryPoint(created=m.created, stats=m.stats))
+
+    view_gap = SystemHistoryView.model_validate(history_data)
+    view_gap.container_points = gap_points
+    doc_gap = _builder(rendering_data).build_history(view_gap)
+    cpu_card = next(c for c in doc_gap.cards if c.title == "容器 CPU 使用率")
+    batch_series = cpu_card.series[0]
+    assert batch_series.name == "batch-job"
+    assert len(batch_series.segments) == 2

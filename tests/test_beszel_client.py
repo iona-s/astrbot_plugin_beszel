@@ -95,7 +95,13 @@ def _client_with_session(
     return BeszelClient(_fixture_config(config_data))
 
 
-def _session_for_fixtures(overview_data, status_data, history_data, client_data):
+def _session_for_fixtures(
+    overview_data,
+    status_data,
+    history_data,
+    client_data,
+    container_history_data=None,
+):
     overview_pages = client_data["systems_pages"]
     systems = overview_data
 
@@ -127,6 +133,14 @@ def _session_for_fixtures(overview_data, status_data, history_data, client_data)
             body["items"] = [status_data["metrics"]]
             return _FakeResponse(response["status"], body)
         if path.endswith("/collections/container_stats/records"):
+            fields = request["params"].get("fields")
+            if fields == "created,stats":
+                response = client_data["responses"]["history"]
+                body = deepcopy(response["body"])
+                body["items"] = (
+                    container_history_data["records"] if container_history_data else []
+                )
+                return _FakeResponse(response["status"], body)
             response = client_data["responses"]["containers"]
             body = deepcopy(response["body"])
             body["items"][0]["stats"] = status_data["containers"]
@@ -143,11 +157,16 @@ async def test_client_authenticates_paginates_and_models_fixture_responses(
     status_data,
     history_data,
     client_data,
+    container_history_data,
     config_data,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     session = _session_for_fixtures(
-        overview_data, status_data, history_data, client_data
+        overview_data,
+        status_data,
+        history_data,
+        client_data,
+        container_history_data,
     )
     client = _client_with_session(config_data, session, monkeypatch)
 
@@ -157,6 +176,9 @@ async def test_client_authenticates_paginates_and_models_fixture_responses(
     metrics = await client.get_latest_metrics(system_id)
     containers = await client.get_latest_containers(system_id)
     history = await client.get_history(system_id, HistoryRange.ONE_HOUR)
+    container_history = await client.get_container_history(
+        system_id, HistoryRange.ONE_HOUR
+    )
     await client.close()
 
     assert len(systems) == len(overview_data)
@@ -169,6 +191,8 @@ async def test_client_authenticates_paginates_and_models_fixture_responses(
     )
     assert len(containers) == len(status_data["containers"])
     assert len(history) == len(history_data["points"])
+    # 4 records in fixture, but records 2 and 3 share the same timestamp -> deduplicated to 3
+    assert len(container_history) == 3
     assert session.closed is True
 
     login = next(
@@ -189,6 +213,91 @@ async def test_client_authenticates_paginates_and_models_fixture_responses(
         systems_requests[0]["headers"]["Authorization"]
         == client_data["responses"]["auth"]["body"]["token"]
     )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "history_range",
+    [
+        HistoryRange.ONE_HOUR,
+        HistoryRange.TWELVE_HOURS,
+        HistoryRange.ONE_DAY,
+        HistoryRange.ONE_WEEK,
+        HistoryRange.THIRTY_DAYS,
+    ],
+)
+async def test_get_container_history_queries_all_ranges(
+    history_range: HistoryRange,
+    client_data,
+    config_data,
+    container_history_data,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    requests = []
+
+    def response_factory(request: dict) -> _FakeResponse:
+        path = request["path"]
+        if path.endswith("/auth-with-password"):
+            response = client_data["responses"]["auth"]
+            return _FakeResponse(response["status"], response["body"])
+        if path.endswith("/collections/container_stats/records"):
+            requests.append(request)
+            response = client_data["responses"]["history"]
+            body = deepcopy(response["body"])
+            body["items"] = container_history_data["records"]
+            return _FakeResponse(response["status"], body)
+        error = client_data["default_error"]
+        return _FakeResponse(error["status"], error["body"])
+
+    session = FixtureSession(response_factory)
+    client = _client_with_session(config_data, session, monkeypatch)
+    results = await client.get_container_history("sys-123", history_range)
+    await client.close()
+
+    assert len(results) == 3
+    assert len(requests) == 1
+    req_filter = requests[0]["params"]["filter"]
+    assert f"type = '{history_range.stats_type}'" in req_filter
+    assert "system = 'sys-123'" in req_filter
+    assert requests[0]["params"]["fields"] == "created,stats"
+    assert requests[0]["params"]["sort"] == "created"
+
+
+@pytest.mark.asyncio
+async def test_get_container_history_empty_and_invalid_records(
+    client_data,
+    config_data,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def response_factory(request: dict) -> _FakeResponse:
+        path = request["path"]
+        if path.endswith("/auth-with-password"):
+            response = client_data["responses"]["auth"]
+            return _FakeResponse(response["status"], response["body"])
+        if path.endswith("/collections/container_stats/records"):
+            response = client_data["responses"]["history"]
+            body = deepcopy(response["body"])
+            # Mix valid, empty created, invalid created, and bad json
+            body["items"] = [
+                {
+                    "created": "2026-08-15 12:00:00.000Z",
+                    "stats": [{"n": "app", "c": 1.0, "m": 10.0}],
+                },
+                {"created": None, "stats": []},
+                {"created": "invalid-timestamp", "stats": []},
+            ]
+            return _FakeResponse(response["status"], body)
+        error = client_data["default_error"]
+        return _FakeResponse(error["status"], error["body"])
+
+    session = FixtureSession(response_factory)
+    client = _client_with_session(config_data, session, monkeypatch)
+    results = await client.get_container_history("sys-123", HistoryRange.ONE_HOUR)
+    await client.close()
+
+    # Only the 1 valid record should be kept
+    assert len(results) == 1
+    assert results[0].stats[0].name == "app"
 
 
 @pytest.mark.asyncio

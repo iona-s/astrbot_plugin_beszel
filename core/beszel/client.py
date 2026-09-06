@@ -17,6 +17,7 @@ from ..errors import (
     BeszelTransportError,
 )
 from .models import (
+    ContainerHistoryMetrics,
     ContainerStats,
     HistoryRange,
     PocketBaseListResult,
@@ -350,6 +351,37 @@ class BeszelClient:
                 by_timestamp[point.created] = point
             except (ValueError, BeszelProtocolError) as exc:
                 logger.debug("Skipping invalid history record: %s", type(exc).__name__)
+                continue
+        return [by_timestamp[key] for key in sorted(by_timestamp)]
+
+    async def get_container_history(
+        self, system_id: str, history_range: HistoryRange
+    ) -> list[ContainerHistoryMetrics]:
+        cutoff = datetime.now(UTC) - history_range.duration
+        cutoff_str = cutoff.strftime("%Y-%m-%d %H:%M:%S")
+        records = await self._list_records(
+            "container_stats",
+            params={
+                "filter": (
+                    self._filter_eq("system", system_id)
+                    + f" && type = '{history_range.stats_type}'"
+                    + f" && created >= '{cutoff_str}'"
+                ),
+                "fields": "created,stats",
+                "sort": "created",
+            },
+        )
+        by_timestamp: dict[datetime, ContainerHistoryMetrics] = {}
+        for record in records:
+            try:
+                point = ContainerHistoryMetrics.model_validate(record)
+                if point.created is None:
+                    continue
+                by_timestamp[point.created] = point
+            except (ValueError, BeszelProtocolError) as exc:
+                logger.debug(
+                    "Skipping invalid container history record: %s", type(exc).__name__
+                )
                 continue
         return [by_timestamp[key] for key in sorted(by_timestamp)]
 

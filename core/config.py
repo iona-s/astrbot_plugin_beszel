@@ -74,6 +74,7 @@ class RenderConfig:
     page_size: int = 20
     show_connection_address: bool = False
     font_path: str = ""
+    container_history_threshold: int = 10
 
 
 @dataclass(frozen=True, slots=True)
@@ -174,6 +175,18 @@ class PluginConfig:
                 "render.page_size 概览每页探针数必须在 10 到 40 之间"
             )
 
+        container_threshold = render_raw.get("container_history_threshold", 10)
+        if container_threshold is None:
+            container_threshold = 10
+        if (
+            isinstance(container_threshold, bool)
+            or not isinstance(container_threshold, int)
+            or not 0 <= container_threshold <= 50
+        ):
+            raise ConfigurationError(
+                "render.container_history_threshold 容器历史过滤阈值必须在 0 到 50 之间"
+            )
+
         webhook_raw = _mapping(data.get("webhook"))
         enabled = bool(webhook_raw.get("enabled", False))
         port = webhook_raw.get("port", 8899)
@@ -241,6 +254,7 @@ class PluginConfig:
                     render_raw.get("show_connection_address", False)
                 ),
                 font_path=_opt_str(render_raw.get("font_path")),
+                container_history_threshold=container_threshold,
             ),
             webhook=WebhookConfig(
                 enabled=enabled,

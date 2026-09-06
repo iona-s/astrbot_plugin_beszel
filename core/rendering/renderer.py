@@ -32,11 +32,13 @@ class BeszelRenderer:
         show_connection_address: bool,
         display_timezone: tzinfo,
         font_path: str | Path | None,
+        container_history_threshold: int = 10,
     ) -> None:
         self.presentation = PresentationBuilder(
             plugin_name=plugin_name,
             show_connection_address=show_connection_address,
             display_timezone=display_timezone,
+            container_history_threshold=container_history_threshold,
         )
         self.templates = BeszelTemplateRenderer()
         self._font_path = font_path

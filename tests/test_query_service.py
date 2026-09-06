@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pytest
 from astrbot_plugin_beszel.core.beszel.models import (
+    ContainerHistoryMetrics,
     HistoryRange,
     SystemDetails,
     SystemHistoryMetrics,
@@ -11,12 +12,15 @@ from astrbot_plugin_beszel.core.beszel.models import (
 from astrbot_plugin_beszel.core.beszel.service import QueryService
 from astrbot_plugin_beszel.core.errors import (
     AmbiguousSystemError,
+    BeszelTransportError,
     SystemNotFoundError,
 )
 
 
 class FixtureClient:
-    def __init__(self, overview_data, status_data, history_data) -> None:
+    def __init__(
+        self, overview_data, status_data, history_data, container_history_data=None
+    ) -> None:
         self.systems = [SystemSummary.model_validate(item) for item in overview_data]
         self.details = SystemDetails.model_validate(status_data["details"])
         self.metrics = SystemMetrics.model_validate(status_data["metrics"])
@@ -24,6 +28,14 @@ class FixtureClient:
         self.history = [
             SystemHistoryMetrics.model_validate(item) for item in history_data["points"]
         ]
+        self.container_history = (
+            [
+                ContainerHistoryMetrics.model_validate(item)
+                for item in container_history_data["records"]
+            ]
+            if container_history_data
+            else []
+        )
         self.calls: list[tuple[str, object]] = []
 
     async def list_systems(self):
@@ -46,10 +58,16 @@ class FixtureClient:
         self.calls.append(("history", (system_id, history_range)))
         return self.history
 
+    async def get_container_history(self, system_id: str, history_range: HistoryRange):
+        self.calls.append(("container_history", (system_id, history_range)))
+        return self.container_history
+
 
 @pytest.fixture()
-def fixture_client(overview_data, status_data, history_data):
-    return FixtureClient(overview_data, status_data, history_data)
+def fixture_client(overview_data, status_data, history_data, container_history_data):
+    return FixtureClient(
+        overview_data, status_data, history_data, container_history_data
+    )
 
 
 @pytest.mark.asyncio
@@ -103,10 +121,35 @@ async def test_detail_and_history_use_selected_id_and_default_range(
     assert len(detail.containers) == len(fixture_client.containers)
     assert history.range is HistoryRange.ONE_HOUR
     assert len(history.points) == len(fixture_client.history)
+    assert len(history.container_points) == len(fixture_client.container_history)
     assert (
         "history",
         (system_id, HistoryRange.ONE_HOUR),
     ) in fixture_client.calls
+    assert (
+        "container_history",
+        (system_id, HistoryRange.ONE_HOUR),
+    ) in fixture_client.calls
+
+
+@pytest.mark.asyncio
+async def test_history_with_empty_and_failing_container_data(fixture_client) -> None:
+    service = QueryService(fixture_client, default_history_range=HistoryRange.ONE_HOUR)
+    system_id = fixture_client.systems[0].id
+
+    # 1. Valid empty container history produces empty container_points
+    fixture_client.container_history = []
+    view = await service.get_system_history(system_id)
+    assert view.container_points == []
+    assert len(view.points) == len(fixture_client.history)
+
+    # 2. Container history failure propagates rather than being masked as complete
+    async def failing_get_container_history(_sys_id, _range):
+        raise BeszelTransportError("Transport failed", status_code=500)
+
+    fixture_client.get_container_history = failing_get_container_history
+    with pytest.raises(BeszelTransportError):
+        await service.get_system_history(system_id)
 
 
 @pytest.mark.asyncio

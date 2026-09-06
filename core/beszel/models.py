@@ -6,7 +6,15 @@ from datetime import datetime, timedelta
 from enum import StrEnum
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from astrbot.api import logger
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    ValidationError,
+    field_validator,
+    model_validator,
+)
 
 from ..errors import InvalidHistoryRangeError
 
@@ -168,6 +176,36 @@ class ContainerStats(BaseModel):
     memory: float | None = Field(default=None, alias="m")
 
 
+class ContainerHistoryMetrics(BaseModel):
+    model_config = ConfigDict(
+        extra="ignore",
+        allow_inf_nan=False,
+    )
+
+    created: datetime | None = None
+    stats: list[ContainerStats] = Field(default_factory=list)
+
+    @field_validator("stats", mode="before")
+    @classmethod
+    def filter_valid_containers(cls, value: Any) -> list[Any]:
+        if not isinstance(value, list):
+            return []
+        valid: list[Any] = []
+        for index, item in enumerate(value):
+            if isinstance(item, ContainerStats):
+                valid.append(item)
+            elif isinstance(item, dict):
+                try:
+                    valid.append(ContainerStats.model_validate(item))
+                except (ValidationError, ValueError) as exc:
+                    logger.debug(
+                        "Skipping invalid container item in history at index %d: %s",
+                        index,
+                        type(exc).__name__,
+                    )
+        return valid
+
+
 class SystemDetailView(BaseModel):
     summary: SystemSummary
     details: SystemDetails | None = None
@@ -185,8 +223,14 @@ class SystemHistoryPoint(BaseModel):
         return _normalize_sample_stats(value)
 
 
+class ContainerHistoryPoint(BaseModel):
+    created: datetime
+    stats: list[ContainerStats] = Field(default_factory=list)
+
+
 class SystemHistoryView(BaseModel):
     summary: SystemSummary
     range: HistoryRange
     points: list[SystemHistoryPoint] = Field(default_factory=list)
+    container_points: list[ContainerHistoryPoint] = Field(default_factory=list)
     details: SystemDetails | None = None

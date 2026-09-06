@@ -9,6 +9,7 @@ from datetime import datetime, tzinfo
 from typing import Any
 
 from ..beszel.models import (
+    ContainerHistoryPoint,
     SystemDetailView,
     SystemHistoryPoint,
     SystemHistoryView,
@@ -44,7 +45,7 @@ from .models import (
     StatusBadge,
     StatusDocument,
 )
-from .styles import metric_color, series_color, threshold_color
+from .styles import SERIES_PALETTE, metric_color, series_color, threshold_color
 
 STATUS_LABELS: dict[StatusState, str] = {
     "up": "在线",
@@ -93,10 +94,12 @@ class PresentationBuilder:
         plugin_name: str,
         show_connection_address: bool,
         display_timezone: tzinfo,
+        container_history_threshold: int = 10,
     ) -> None:
         self.plugin_name = plugin_name
         self.show_connection_address = show_connection_address
         self.display_timezone = display_timezone
+        self.container_history_threshold = container_history_threshold
 
     def build_overview(
         self,
@@ -248,15 +251,25 @@ class PresentationBuilder:
             cpu_text=cpu_str,
             memory_text=memory_str,
         )
-        cards = tuple(
+        cards = list(
             self._history_cards(
                 points,
                 gap_seconds=view.range.expected_interval.total_seconds() * 1.5,
             )
         )
+        if view.container_points:
+            container_points = tuple(
+                sorted(view.container_points, key=lambda p: p.created)
+            )
+            cards.extend(
+                self._container_history_cards(
+                    container_points,
+                    gap_seconds=view.range.expected_interval.total_seconds() * 1.5,
+                )
+            )
         return HistoryDocument(
             header=header,
-            cards=cards,
+            cards=tuple(cards),
             footer=DocumentFooter(f"{self.plugin_name} · {summary.name}"),
         )
 
@@ -949,13 +962,127 @@ class PresentationBuilder:
             )
         return cards
 
+    def _container_history_cards(
+        self,
+        points: tuple[ContainerHistoryPoint, ...],
+        *,
+        gap_seconds: float,
+    ) -> list[HistoryChartCard]:
+        cards: list[HistoryChartCard] = []
+        cpu_by_container: dict[str, list[tuple[datetime, float]]] = {}
+        mem_by_container: dict[str, list[tuple[datetime, float]]] = {}
+
+        for point in points:
+            created = point.created
+            for c in point.stats:
+                name = c.name
+                if (cpu_val := safe_float(c.cpu)) is not None:
+                    cpu_by_container.setdefault(name, []).append((created, cpu_val))
+                if (mem_val := safe_float(c.memory)) is not None:
+                    mem_by_container.setdefault(name, []).append(
+                        (created, mem_val * (1024**2))
+                    )
+
+        if not cpu_by_container and not mem_by_container:
+            return cards
+
+        threshold = max(0, min(50, self.container_history_threshold))
+
+        # CPU threshold filtering
+        peak_cpu = {
+            name: max((v for _, v in pts), default=0.0)
+            for name, pts in cpu_by_container.items()
+        }
+        sorted_cpu = sorted(
+            peak_cpu.items(),
+            key=lambda item: (-item[1], item[0].casefold()),
+        )
+        if sorted_cpu:
+            all_cpu_vals = [v for pts in cpu_by_container.values() for _, v in pts]
+            _, cpu_axis_max = self._axis_bounds(ChartUnit.PERCENT, all_cpu_vals, None)
+            if threshold <= 0:
+                kept_cpu_names = [name for name, _ in sorted_cpu]
+            else:
+                cpu_cutoff = cpu_axis_max * (threshold / 100.0)
+                kept_cpu_names = [
+                    name for name, peak in sorted_cpu if peak >= cpu_cutoff
+                ]
+            extra_cpu = max(0, len(sorted_cpu) - len(kept_cpu_names))
+        else:
+            kept_cpu_names = []
+            extra_cpu = 0
+
+        # Memory threshold filtering
+        peak_mem = {
+            name: max((v for _, v in pts), default=0.0)
+            for name, pts in mem_by_container.items()
+        }
+        sorted_mem = sorted(
+            peak_mem.items(),
+            key=lambda item: (-item[1], item[0].casefold()),
+        )
+        if sorted_mem:
+            all_mem_vals = [v for pts in mem_by_container.values() for _, v in pts]
+            _, mem_axis_max = self._axis_bounds(ChartUnit.BYTES, all_mem_vals, None)
+            if threshold <= 0:
+                kept_mem_names = [name for name, _ in sorted_mem]
+            else:
+                mem_cutoff = mem_axis_max * (threshold / 100.0)
+                kept_mem_names = [
+                    name for name, peak in sorted_mem if peak >= mem_cutoff
+                ]
+            extra_mem = max(0, len(sorted_mem) - len(kept_mem_names))
+        else:
+            kept_mem_names = []
+            extra_mem = 0
+
+        all_kept_names = sorted(
+            set(kept_cpu_names) | set(kept_mem_names), key=str.casefold
+        )
+        name_to_color = {
+            name: SERIES_PALETTE[i % len(SERIES_PALETTE)]
+            for i, name in enumerate(all_kept_names)
+        }
+
+        if kept_cpu_names:
+            cpu_specs = [
+                (name, cpu_by_container[name], name_to_color[name])
+                for name in kept_cpu_names
+            ]
+            self._append_chart(
+                cards,
+                "容器 CPU 使用率",
+                "容器范围内的 CPU 使用率",
+                ChartUnit.PERCENT,
+                cpu_specs,
+                gap_seconds,
+                extra_series_count=extra_cpu,
+            )
+
+        if kept_mem_names:
+            mem_specs = [
+                (name, mem_by_container[name], name_to_color[name])
+                for name in kept_mem_names
+            ]
+            self._append_chart(
+                cards,
+                "容器内存使用",
+                "采集时间下的容器内存使用",
+                ChartUnit.BYTES,
+                mem_specs,
+                gap_seconds,
+                extra_series_count=extra_mem,
+            )
+
+        return cards
+
     def _append_chart(
         self,
         cards: list[HistoryChartCard],
         title: str,
         subtitle: str,
         unit: ChartUnit,
-        series_specs: list[tuple[str, list[tuple[datetime, float]], str]],
+        series_specs: list[tuple[str, list[tuple[datetime, float]], Any]],
         gap_seconds: float,
         *,
         maximum_override: float | None = None,
@@ -972,10 +1099,15 @@ class PresentationBuilder:
                 continue
             segments = self.split_series_points(normalized_points, gap_seconds)
             values = tuple(point.value for point in normalized_points)
+            color = (
+                metric_key
+                if isinstance(metric_key, tuple)
+                else series_color(index, metric_key=metric_key)
+            )
             series.append(
                 ChartSeries(
                     name=name,
-                    color=series_color(index, metric_key=metric_key),
+                    color=color,
                     points=normalized_points,
                     segments=segments,
                     current_value=values[-1],

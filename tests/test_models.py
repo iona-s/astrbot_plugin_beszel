@@ -4,6 +4,8 @@ from datetime import UTC, datetime
 
 import pytest
 from astrbot_plugin_beszel.core.beszel.models import (
+    ContainerHistoryMetrics,
+    ContainerHistoryPoint,
     ContainerStats,
     HistoryRange,
     PocketBaseListResult,
@@ -82,3 +84,40 @@ def test_explicit_and_malformed_bandwidth_values_are_preserved(models_data) -> N
 
     malformed = SystemMetrics.model_validate(models_data["sample_malformed_bandwidth"])
     assert malformed.stats["b"] == "invalid"
+
+
+def test_container_history_metrics_filters_malformed_items(
+    container_history_data,
+) -> None:
+    # Third record has 10 valid containers + 1 invalid dict item without 'n'
+    record = container_history_data["records"][2]
+    metrics = ContainerHistoryMetrics.model_validate(record)
+    assert metrics.created is not None
+    assert len(metrics.stats) == 10
+    names = [c.name for c in metrics.stats]
+    assert "web" in names
+    assert "backup" in names
+
+
+def test_container_history_point_and_system_history_view_backward_compatibility(
+    history_data, container_history_data
+) -> None:
+    # Backward compatibility: view without container_points defaults to empty list
+    view_default = SystemHistoryView.model_validate(history_data)
+    assert view_default.container_points == []
+
+    # View with populated container points
+    points = [
+        ContainerHistoryPoint(
+            created=datetime(2026, 8, 15, 12, 0, tzinfo=UTC),
+            stats=[ContainerStats(n="web", c=12.5, m=256.0)],
+        )
+    ]
+    view_with_containers = SystemHistoryView(
+        summary=view_default.summary,
+        range=view_default.range,
+        points=view_default.points,
+        container_points=points,
+    )
+    assert len(view_with_containers.container_points) == 1
+    assert view_with_containers.container_points[0].stats[0].name == "web"

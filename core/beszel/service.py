@@ -11,6 +11,7 @@ from ..errors import AmbiguousSystemError, SystemNotFoundError
 from ..formatters import status_state
 from .client import BeszelClient
 from .models import (
+    ContainerHistoryPoint,
     HistoryRange,
     SystemDetailView,
     SystemHistoryPoint,
@@ -165,6 +166,20 @@ class QueryService:
             parsed_range.value,
             len(points),
         )
+        container_metrics = await self.client.get_container_history(
+            system.id, parsed_range
+        )
+        container_points = [
+            ContainerHistoryPoint(created=point.created, stats=point.stats)
+            for point in container_metrics
+            if point.created is not None
+        ]
+        logger.debug(
+            "QueryService.get_system_history: id=%s range=%s returned %d container points",
+            system.id,
+            parsed_range.value,
+            len(container_points),
+        )
         system_details = None
         try:
             system_details = await self.client.get_system_details(system.id)
@@ -178,6 +193,7 @@ class QueryService:
             summary=system,
             range=parsed_range,
             points=points,
+            container_points=container_points,
             details=system_details,
         )
 

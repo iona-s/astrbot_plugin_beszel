@@ -5,7 +5,12 @@ import logging
 from typing import Any
 
 import pytest
-from astrbot_plugin_beszel.core.beszel.models import SystemSummary
+from astrbot_plugin_beszel.core.beszel.models import (
+    ContainerHistoryMetrics,
+    ContainerHistoryPoint,
+    SystemHistoryView,
+    SystemSummary,
+)
 from astrbot_plugin_beszel.core.config import WebhookConfig
 from astrbot_plugin_beszel.core.webhook.delivery import WebhookDelivery
 from astrbot_plugin_beszel.core.webhook.models import (
@@ -216,14 +221,19 @@ class _FakeContext:
 class _FakeRenderer:
     def __init__(self, image_bytes: bytes = b"\x89PNG\r\n\x1a\nfake") -> None:
         self.image_bytes = image_bytes
+        self.rendered_views: list[Any] = []
 
-    async def render_history(self, _view) -> bytes:
+    async def render_history(self, view) -> bytes:
+        self.rendered_views.append(view)
         return self.image_bytes
 
 
 class _FakeHistoryService:
+    def __init__(self, view=None) -> None:
+        self.view = view
+
     async def get_system_history(self, _system_id, _range):
-        return None
+        return self.view
 
 
 @pytest.mark.asyncio
@@ -410,3 +420,44 @@ async def test_loopback_server_handles_non_ascii_auth_over_http(webhook_data) ->
             assert "request_id" in body
     finally:
         await server.stop()
+
+
+@pytest.mark.asyncio
+async def test_webhook_history_attachment_passes_container_points_to_renderer(
+    history_data, container_history_data, webhook_data
+) -> None:
+    view = SystemHistoryView.model_validate(history_data)
+    view.container_points = [
+        ContainerHistoryPoint(created=m.created, stats=m.stats)
+        for raw in container_history_data["records"]
+        if (m := ContainerHistoryMetrics.model_validate(raw)).created is not None
+    ]
+    renderer = _FakeRenderer()
+    service = _FakeHistoryService(view=view)
+    context = _FakeContext({"target:success": [True, True]})
+    config = WebhookConfig(
+        enabled=True,
+        path=webhook_data["server"]["path"],
+        token=webhook_data["auth"]["token"],
+        target_umos=("target:success",),
+    )
+    delivery = WebhookDelivery(
+        config=config,
+        context=context,
+        service=service,
+        renderer=renderer,
+    )
+    notification_data = webhook_data["delivery_notification"]
+    notification = NormalizedNotification(
+        source=NotificationSource.GENERIC,
+        title=notification_data["title"],
+        message=notification_data["message"],
+        history_system_id=notification_data["history_system_id"],
+        request_id=notification_data["request_id"],
+    )
+    successes = await delivery.deliver(notification)
+    assert successes == 1
+    assert len(renderer.rendered_views) == 1
+    passed_view = renderer.rendered_views[0]
+    assert passed_view is view
+    assert len(passed_view.container_points) > 0
