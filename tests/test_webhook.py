@@ -242,10 +242,9 @@ async def test_delivery_accounting_handles_success_failure_and_mixed_targets(
     caplog,
     monkeypatch,
 ) -> None:
-    from astrbot.api import logger
-
-    monkeypatch.setattr(logger, "propagate", True)
-    caplog.set_level(logging.DEBUG)
+    astrbot_logger = logging.getLogger("astrbot")
+    monkeypatch.setattr(astrbot_logger, "propagate", True)
+    caplog.set_level(logging.DEBUG, logger="astrbot")
     targets = (
         "target:success",
         "target:text_false",
