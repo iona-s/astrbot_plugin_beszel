@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -10,7 +11,20 @@ from astrbot_plugin_beszel.core.beszel.models import (
     SystemHistoryView,
     SystemSummary,
 )
+from astrbot_plugin_beszel.core.rendering.models import (
+    ChartPoint,
+    ChartSeries,
+    ChartUnit,
+    DocumentFooter,
+    DocumentHeader,
+    HistoryChartCard,
+    HistoryDocument,
+)
 from astrbot_plugin_beszel.core.rendering.renderer import BeszelRenderer
+from astrbot_plugin_beszel.core.rendering.templates.charts import (
+    TICK_LABEL_WIDTH,
+    build_chart_view,
+)
 from astrbot_plugin_beszel.core.rendering.templates.environment import (
     BeszelTemplateRenderer,
 )
@@ -119,3 +133,155 @@ async def test_pytakumi_renders_container_history_scenarios(
         assert "+4" in markup
     finally:
         renderer.close()
+
+
+def test_chart_geometry_single_point_segment_has_marker() -> None:
+    now = datetime(2026, 9, 6, 12, 0, tzinfo=UTC)
+    point = ChartPoint(created=now, value=42.0)
+    series = ChartSeries(
+        name="test",
+        color=(255, 0, 0),
+        points=(point,),
+        segments=((point,),),
+        current_value=42.0,
+    )
+    card = HistoryChartCard(
+        title="单点测试",
+        subtitle="",
+        unit=ChartUnit.PERCENT,
+        series=(series,),
+        axis_min=0.0,
+        axis_max=100.0,
+    )
+    view = build_chart_view(card, timezone=UTC)
+    assert view.geometry is not None
+    assert len(view.geometry.segments) == 1
+    seg = view.geometry.segments[0]
+    assert len(seg.markers) == 1
+    assert seg.line_path is None
+    assert seg.area_path is None
+
+    # Test template renders the circle marker
+    doc = HistoryDocument(
+        header=DocumentHeader(title="单点测试"),
+        cards=(card,),
+        footer=DocumentFooter(label=""),
+    )
+    templates = BeszelTemplateRenderer()
+    markup = templates.render_history(doc, timezone=UTC)
+    assert '<circle class="chart-marker"' in markup
+
+
+def test_chart_geometry_data_gap_isolated_single_point() -> None:
+    now = datetime(2026, 9, 6, 12, 0, tzinfo=UTC)
+    # Multi-point segment
+    p1 = ChartPoint(created=now, value=10.0)
+    p2 = ChartPoint(created=now + timedelta(minutes=1), value=20.0)
+    p3 = ChartPoint(created=now + timedelta(minutes=2), value=30.0)
+    # Gap of 100 minutes, followed by isolated single point
+    p4 = ChartPoint(created=now + timedelta(minutes=102), value=40.0)
+
+    series = ChartSeries(
+        name="gap_test",
+        color=(0, 128, 255),
+        points=(p1, p2, p3, p4),
+        segments=((p1, p2, p3), (p4,)),
+        current_value=40.0,
+    )
+    card = HistoryChartCard(
+        title="缺口单点测试",
+        subtitle="",
+        unit=ChartUnit.PERCENT,
+        series=(series,),
+        axis_min=0.0,
+        axis_max=100.0,
+    )
+    view = build_chart_view(card, timezone=UTC)
+    assert view.geometry is not None
+    assert len(view.geometry.segments) == 2
+    seg_multi = view.geometry.segments[0]
+    seg_single = view.geometry.segments[1]
+
+    # Multi-point segment has curve and area, but no markers
+    assert seg_multi.line_path is not None
+    assert seg_multi.area_path is not None
+    assert seg_multi.markers == ()
+
+    # Single-point segment has 1 marker, and no curve/area
+    assert seg_single.line_path is None
+    assert seg_single.area_path is None
+    assert len(seg_single.markers) == 1
+
+    doc = HistoryDocument(
+        header=DocumentHeader(title="缺口测试"),
+        cards=(card,),
+        footer=DocumentFooter(label=""),
+    )
+    templates = BeszelTemplateRenderer()
+    markup = templates.render_history(doc, timezone=UTC)
+    assert '<circle class="chart-marker"' in markup
+    assert '<path class="chart-line"' in markup
+
+
+def test_chart_multi_series_ticks_cover_full_time_span_and_stay_in_bounds() -> None:
+    now = datetime(2026, 9, 6, 12, 0, tzinfo=UTC)
+    end_time = now + timedelta(hours=1)
+
+    # Series A: sorted first (e.g. higher peak metric), but only has 1 sample at the end
+    point_a = ChartPoint(created=end_time, value=99.0)
+    series_a = ChartSeries(
+        name="container-a",
+        color=(255, 0, 0),
+        points=(point_a,),
+        segments=((point_a,),),
+        current_value=99.0,
+    )
+
+    # Series B: runs across the full 1-hour range with irregular sampling
+    points_b = tuple(
+        ChartPoint(created=now + timedelta(minutes=m), value=20.0)
+        for m in [0, 1, 2, 30, 60]
+    )
+    series_b = ChartSeries(
+        name="container-b",
+        color=(0, 128, 255),
+        points=points_b,
+        segments=(points_b,),
+        current_value=20.0,
+    )
+
+    card = HistoryChartCard(
+        title="多序列时间轴测试",
+        subtitle="",
+        unit=ChartUnit.PERCENT,
+        series=(series_a, series_b),
+        axis_min=0.0,
+        axis_max=100.0,
+    )
+
+    view = build_chart_view(card, timezone=UTC)
+    assert view.geometry is not None
+    ticks = view.geometry.ticks
+    assert len(ticks) >= 2
+
+    curr = 0.0
+    boxes: list[tuple[float, float, str, str]] = []
+    for t in ticks:
+        left = curr + t.margin_left
+        right = left + TICK_LABEL_WIDTH
+        boxes.append((left, right, t.label, t.anchor))
+        curr = right
+
+    # 1. Start and end ticks represent the global time range, not series A's isolated point
+    assert boxes[0][2] == "12:00"
+    assert boxes[0][3] == "start"
+    assert boxes[-1][2] == "13:00"
+    assert boxes[-1][3] == "end"
+
+    # 2. All tick boxes stay within plot_left and plot_right bounds
+    assert boxes[0][0] >= view.geometry.plot_left - 1e-6
+    assert boxes[-1][1] <= view.geometry.plot_right + 1e-6
+
+    # 3. No adjacent tick boxes overlap
+    for k in range(len(boxes) - 1):
+        assert boxes[k + 1][0] >= boxes[k][1] - 1e-6

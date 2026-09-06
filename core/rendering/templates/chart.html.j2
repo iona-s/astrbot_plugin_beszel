@@ -17,8 +17,8 @@
       <defs>
         {% for segment in view.geometry.segments %}
         <linearGradient id="{{ segment.grad_id }}" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stop-color="{{ segment.color | color_css }}" stop-opacity="0.28" />
-          <stop offset="100%" stop-color="{{ segment.color | color_css }}" stop-opacity="0.02" />
+          <stop offset="0%" stop-color="{{ segment.color | color_css }}" stop-opacity="0.20" />
+          <stop offset="100%" stop-color="{{ segment.color | color_css }}" stop-opacity="0.20" />
         </linearGradient>
         {% endfor %}
       </defs>
@@ -27,8 +27,8 @@
       {% endfor %}
       {% for segment in view.geometry.segments %}
         {% if segment.area_path %}<path class="chart-area" d="{{ segment.area_path }}" fill="url(#{{ segment.grad_id }})" />{% endif %}
-        {% if segment.line_path %}<path class="chart-line" d="{{ segment.line_path }}" fill="none" stroke="{{ segment.color | color_css }}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />{% endif %}
-        {% for marker in segment.markers %}<circle class="chart-marker" cx="{{ marker.x | coord }}" cy="{{ marker.y | coord }}" r="3" fill="{{ segment.color | color_css }}" />{% endfor %}
+        {% if segment.line_path %}<path class="chart-line" d="{{ segment.line_path }}" fill="none" stroke="{{ segment.color | color_css }}" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" />{% endif %}
+        {% for marker in segment.markers %}<circle class="chart-marker" cx="{{ marker.x | coord }}" cy="{{ marker.y | coord }}" r="2" fill="{{ segment.color | color_css }}" />{% endfor %}
       {% endfor %}
     </svg>
   </div>

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from zoneinfo import ZoneInfo
 
 from astrbot_plugin_beszel.core.beszel.models import (
@@ -148,12 +149,12 @@ def test_container_history_cards_generation_and_threshold_filtering(
     view.container_points = container_points
     document = _builder(rendering_data).build_history(view)
 
-    # Check that container cards were appended after host cards
+    # Check that container cards were interleaved right after their respective host cards (Option A)
     titles = [card.title for card in document.cards]
     assert "容器 CPU 使用率" in titles
     assert "容器内存使用" in titles
-    assert titles.index("容器 CPU 使用率") > titles.index("CPU 使用率")
-    assert titles.index("容器内存使用") > titles.index("内存使用")
+    assert titles.index("容器 CPU 使用率") == titles.index("CPU 使用率") + 1
+    assert titles.index("容器内存使用") == titles.index("内存使用") + 1
 
     cpu_card = next(c for c in document.cards if c.title == "容器 CPU 使用率")
     mem_card = next(c for c in document.cards if c.title == "容器内存使用")
@@ -236,3 +237,82 @@ def test_container_history_gaps_and_empty_handling(
     batch_series = cpu_card.series[0]
     assert batch_series.name == "batch-job"
     assert len(batch_series.segments) == 2
+
+
+def test_history_cards_ordering_matches_beszel_hub_option_a(
+    history_data, container_history_data, rendering_data
+) -> None:
+    container_points = []
+    for raw in container_history_data["records"]:
+        m = ContainerHistoryMetrics.model_validate(raw)
+        if m.created is not None:
+            container_points.append(
+                ContainerHistoryPoint(created=m.created, stats=m.stats)
+            )
+
+    view = SystemHistoryView.model_validate(history_data)
+    view.container_points = container_points
+    doc = _builder(rendering_data).build_history(view)
+
+    titles = [card.title for card in doc.cards]
+    # Verify complete sequence matching Beszel Hub default layout:
+    # CPU -> Container CPU -> Memory -> Container Memory -> Root Disk -> Disk I/O ->
+    # Bandwidth -> Swap -> Load -> Temperature -> Fan -> Battery -> GPU -> Extra FS
+    expected_full_titles = [
+        "CPU 使用率",
+        "容器 CPU 使用率",
+        "内存使用",
+        "容器内存使用",
+        "磁盘使用",
+        "磁盘 I/O",
+        "带宽",
+        "Swap 交换空间",
+        "系统负载",
+        "温度",
+        "风扇",
+        "电池电量",
+        "Demo GPU 12GB 功耗",
+        "Demo GPU 12GB 使用",
+        "Demo GPU 12GB VRAM",
+        "Archive 使用",
+        "Archive I/O",
+        "Projects 使用",
+        "Projects I/O",
+    ]
+    assert titles == expected_full_titles
+
+
+def test_fan_and_temperature_dynamic_series_colors(
+    history_data, rendering_data
+) -> None:
+    # Construct history points with multiple fans and temperature sensors
+    now = datetime(2026, 9, 6, 12, 0, tzinfo=UTC)
+    fan_point = SystemHistoryPoint(
+        created=now,
+        stats={
+            "cpu": 25.0,
+            "f": {"fan_case": 1200, "fan_cpu": 1800},
+            "t": {"CPU Core 1": 45.0, "CPU Core 2": 48.0},
+        },
+    )
+    view = SystemHistoryView(
+        summary=SystemSummary.model_validate(history_data["summary"]),
+        range=HistoryRange.ONE_HOUR,
+        points=[fan_point],
+    )
+    doc = _builder(rendering_data).build_history(view)
+
+    fan_card = next(c for c in doc.cards if c.title == "风扇")
+    assert len(fan_card.series) == 2
+    # 2 fans must receive complementary hues (0 deg: Red, 180 deg: Cyan)
+    f0_color = fan_card.series[0].color
+    f1_color = fan_card.series[1].color
+    assert f0_color == (209, 71, 71)
+    assert f1_color == (71, 209, 209)
+
+    temp_card = next(c for c in doc.cards if c.title == "温度")
+    assert len(temp_card.series) == 2
+    t0_color = temp_card.series[0].color
+    t1_color = temp_card.series[1].color
+    assert t0_color == (209, 71, 71)
+    assert t1_color == (71, 209, 209)

@@ -18,7 +18,7 @@ from ..models import ChartPoint, ChartUnit, Color, HistoryChartCard
 # The 520px card content box splits between a y-axis label column (sized per
 # chart from its widest label) and the SVG; both widths travel in the geometry.
 CONTENT_WIDTH = 520
-CHART_HEIGHT = 175
+CHART_HEIGHT = 148
 # Small plot inset so stroked shapes never touch the SVG edge.
 PLOT_LEFT = 6
 PLOT_RIGHT_INSET = 6
@@ -29,7 +29,7 @@ PLOT_BOTTOM = 142
 # maximum, extreme labels clip via overflow:hidden instead of squeezing the plot.
 Y_AXIS_GAP = 8
 Y_AXIS_MIN = 24
-Y_AXIS_MAX = 58
+Y_AXIS_MAX = 64
 
 # Fixed tick label box width; must match .chart-tick-label in beszel.css.
 TICK_LABEL_WIDTH = 60
@@ -137,18 +137,20 @@ def build_chart_view(card: HistoryChartCard, *, timezone: tzinfo) -> ChartTempla
                 if (line_path is not None and card.unit != ChartUnit.TEMPERATURE)
                 else None
             )
+            markers = (ChartMarker(*coords[0]),) if len(coords) == 1 else ()
             segments.append(
                 ChartSegmentGeometry(
                     color=series.color,
                     area_path=area_path,
                     line_path=line_path,
-                    markers=(ChartMarker(*coords[-1]),),
+                    markers=markers,
                     grad_id=f"grad-{series_index}-{segment_index}",
                 )
             )
 
+    tick_points = tuple(sorted(points, key=lambda point: point.created))
     ticks = _ticks(
-        card.series[0].points,
+        tick_points,
         first_timestamp=first_timestamp,
         time_span=time_span,
         plot_width=plot_width,
@@ -178,23 +180,23 @@ def _y_axis_width(labels: Iterable[str]) -> int:
 
 
 def _estimate_width(text: str) -> float:
-    """Estimate the 10px Noto Sans SC advance width without font metrics."""
+    """Estimate the 11px Noto Sans SC advance width without font metrics."""
     width = 0.0
     for char in text:
         if char.isascii() and char.isdigit():
-            width += 6.0
+            width += 6.6
         elif char == " ":
-            width += 2.0
+            width += 2.2
         elif char in ".-":
-            width += 3.0
+            width += 3.3
         elif char in "/°":
-            width += 4.0
+            width += 4.4
         elif char in "%W":
-            width += 9.0
+            width += 9.9
         elif char.isascii():
-            width += 6.5
+            width += 7.2
         else:
-            width += 10.0
+            width += 11.0
     return width
 
 
@@ -211,33 +213,97 @@ def _ticks(
     Each fixed-width box carries the ``margin_left`` gap from the previous
     box's right edge, reproducing absolute positions in normal flow.
     """
-    tick_count = min(5, len(points))
-    ticks: list[ChartTick] = []
-    previous_right = 0.0
-    for index in range(tick_count):
-        point_index = round(index * (len(points) - 1) / max(1, tick_count - 1))
-        point = points[point_index]
+    if not points:
+        return ()
+
+    # Deduplicate points by timestamp to avoid collision on duplicate sample times
+    unique_points: list[ChartPoint] = []
+    seen_ts: set[float] = set()
+    for pt in points:
+        ts = _timestamp(pt.created)
+        if ts not in seen_ts:
+            seen_ts.add(ts)
+            unique_points.append(pt)
+
+    tick_count = min(5, len(unique_points))
+    if tick_count == 0:
+        return ()
+
+    if tick_count == 1:
+        pt = unique_points[0]
         x = PLOT_LEFT + (
-            (_timestamp(point.created) - first_timestamp) / time_span * plot_width
+            (_timestamp(pt.created) - first_timestamp) / time_span * plot_width
         )
-        anchor = (
-            "start" if index == 0 else ("end" if index == tick_count - 1 else "middle")
-        )
-        if anchor == "start":
-            left = x
-        elif anchor == "end":
-            left = x - TICK_LABEL_WIDTH
-        else:
-            left = x - TICK_LABEL_WIDTH / 2
-        ticks.append(
+        return (
             ChartTick(
-                label=_time_label(point.created, timezone, time_span=time_span),
-                anchor=anchor,
-                margin_left=left - previous_right,
-            )
+                label=_time_label(pt.created, timezone, time_span=time_span),
+                anchor="start",
+                margin_left=x,
+            ),
         )
-        previous_right = left + TICK_LABEL_WIDTH
-    return tuple(ticks)
+
+    # First tick: left-aligned to first data point
+    pt_first = unique_points[0]
+    x_first = PLOT_LEFT + (
+        (_timestamp(pt_first.created) - first_timestamp) / time_span * plot_width
+    )
+    first_tick = ChartTick(
+        label=_time_label(pt_first.created, timezone, time_span=time_span),
+        anchor="start",
+        margin_left=x_first,
+    )
+    first_right = x_first + TICK_LABEL_WIDTH
+
+    # Last tick: right-aligned to last data point
+    pt_last = unique_points[-1]
+    x_last = PLOT_LEFT + (
+        (_timestamp(pt_last.created) - first_timestamp) / time_span * plot_width
+    )
+    last_left = x_last - TICK_LABEL_WIDTH
+    last_right = x_last
+    last_label = _time_label(pt_last.created, timezone, time_span=time_span)
+
+    accepted: list[tuple[ChartTick, float, float]] = [
+        (first_tick, x_first, first_right)
+    ]
+    current_right = first_right
+
+    # Intermediate ticks: center-aligned, added only if they fit between
+    # the preceding accepted tick and the last tick without overlap
+    if tick_count > 2 and last_left >= first_right:
+        for index in range(1, tick_count - 1):
+            point_index = round(
+                index * (len(unique_points) - 1) / max(1, tick_count - 1)
+            )
+            pt = unique_points[point_index]
+            x = PLOT_LEFT + (
+                (_timestamp(pt.created) - first_timestamp) / time_span * plot_width
+            )
+            cand_left = x - TICK_LABEL_WIDTH / 2
+            cand_right = cand_left + TICK_LABEL_WIDTH
+            if (
+                cand_left >= current_right
+                and cand_right <= last_left
+                and cand_left >= PLOT_LEFT
+            ):
+                tick = ChartTick(
+                    label=_time_label(pt.created, timezone, time_span=time_span),
+                    anchor="middle",
+                    margin_left=max(0.0, cand_left - current_right),
+                )
+                accepted.append((tick, cand_left, cand_right))
+                current_right = cand_right
+
+    # Always include the last tick if it does not overlap the preceding tick
+    if last_left >= current_right:
+        last_tick = ChartTick(
+            label=last_label,
+            anchor="end",
+            margin_left=max(0.0, last_left - current_right),
+        )
+        accepted.append((last_tick, last_left, last_right))
+
+    return tuple(t[0] for t in accepted)
 
 
 def _timestamp(value: datetime) -> float:

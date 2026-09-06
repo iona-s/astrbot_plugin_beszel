@@ -505,18 +505,18 @@ body {
 .chart {
   display: block;
 }
-/* Padding centers the 12px labels on the gridlines (plot 12px–142px of 175px). */
+/* Padding centers the 12px labels on the gridlines (plot 12px–142px of 148px). */
 .chart-y-axis {
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  height: 175px;
-  padding: 6px 0 27px;
+  height: 148px;
+  padding: 6px 0 0px;
 }
 .chart-y-label {
-  font-size: 10px;
+  font-size: 11px;
   line-height: 12px;
-  color: #64748b;
+  color: #334155;
   text-align: right;
   white-space: nowrap;
   overflow: hidden;
@@ -527,14 +527,14 @@ body {
 }
 .chart-x-axis {
   display: flex;
-  margin-top: 4px;
+  margin-top: 2px;
 }
 .chart-tick-label {
   flex: none;
   width: 60px;
-  font-size: 10px;
+  font-size: 11px;
   line-height: 12px;
-  color: #64748b;
+  color: #334155;
   white-space: nowrap;
   overflow: hidden;
 }
@@ -543,7 +543,7 @@ body {
 .chart-tick-end { text-align: right; }
 .chart-line {
   fill: none;
-  stroke-width: 2px;
+  stroke-width: 1px;
   stroke-linecap: round;
   stroke-linejoin: round;
 }
@@ -572,7 +572,7 @@ body {
 .legend-dot {
   width: 8px;
   height: 8px;
-  border-radius: 50%;
+  border-radius: 2px;
   display: inline-block;
 }
 .legend-more {

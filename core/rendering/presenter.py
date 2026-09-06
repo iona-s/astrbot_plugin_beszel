@@ -45,7 +45,12 @@ from .models import (
     StatusBadge,
     StatusDocument,
 )
-from .styles import SERIES_PALETTE, metric_color, series_color, threshold_color
+from .styles import (
+    dynamic_series_color,
+    metric_color,
+    series_color,
+    threshold_color,
+)
 
 STATUS_LABELS: dict[StatusState, str] = {
     "up": "在线",
@@ -251,22 +256,24 @@ class PresentationBuilder:
             cpu_text=cpu_str,
             memory_text=memory_str,
         )
-        cards = list(
-            self._history_cards(
-                points,
-                gap_seconds=view.range.expected_interval.total_seconds() * 1.5,
-            )
-        )
+        container_cpu_card: HistoryChartCard | None = None
+        container_mem_card: HistoryChartCard | None = None
         if view.container_points:
             container_points = tuple(
                 sorted(view.container_points, key=lambda p: p.created)
             )
-            cards.extend(
-                self._container_history_cards(
-                    container_points,
-                    gap_seconds=view.range.expected_interval.total_seconds() * 1.5,
-                )
+            container_cpu_card, container_mem_card = self._container_history_cards(
+                container_points,
+                gap_seconds=view.range.expected_interval.total_seconds() * 1.5,
             )
+        cards = list(
+            self._history_cards(
+                points,
+                gap_seconds=view.range.expected_interval.total_seconds() * 1.5,
+                container_cpu_card=container_cpu_card,
+                container_mem_card=container_mem_card,
+            )
+        )
         return HistoryDocument(
             header=header,
             cards=tuple(cards),
@@ -572,7 +579,12 @@ class PresentationBuilder:
         return rows
 
     def _history_cards(
-        self, points: tuple[SystemHistoryPoint, ...], *, gap_seconds: float
+        self,
+        points: tuple[SystemHistoryPoint, ...],
+        *,
+        gap_seconds: float,
+        container_cpu_card: HistoryChartCard | None = None,
+        container_mem_card: HistoryChartCard | None = None,
     ) -> list[HistoryChartCard]:
         valid_points = [
             (point.created, point.stats)
@@ -594,6 +606,8 @@ class PresentationBuilder:
             [("使用率", cpu_points, "cpu")],
             gap_seconds,
         )
+        if container_cpu_card is not None:
+            cards.append(container_cpu_card)
 
         mu_history = self._capacity_history(
             (
@@ -636,6 +650,8 @@ class PresentationBuilder:
             gap_seconds,
             maximum_override=mu_history.maximum,
         )
+        if container_mem_card is not None:
+            cards.append(container_mem_card)
 
         disk_history = self._capacity_history(
             (
@@ -706,6 +722,32 @@ class PresentationBuilder:
                 gap_seconds,
             )
 
+        swap_samples: list[tuple[datetime, Any, Any, Any]] = []
+        for created, stats in valid_points:
+            used = safe_float(stats.get("su"))
+            swap_samples.append(
+                (
+                    created,
+                    used,
+                    stats.get("s"),
+                    stats.get("sp"),
+                )
+            )
+        swap_history = self._capacity_history(
+            swap_samples,
+            allow_used_without_total=True,
+        )
+        if swap_history.points and max(value for _, value in swap_history.points) > 0:
+            self._append_chart(
+                cards,
+                "Swap 交换空间",
+                "系统使用的 Swap 空间",
+                swap_history.unit,
+                [("Swap", list(swap_history.points), "swap")],
+                gap_seconds,
+                maximum_override=swap_history.maximum,
+            )
+
         load_one: list[tuple[datetime, float]] = []
         load_five: list[tuple[datetime, float]] = []
         load_fifteen: list[tuple[datetime, float]] = []
@@ -769,14 +811,76 @@ class PresentationBuilder:
             )
             top_temperatures = ordered_temperatures[:4]
             extra_count = max(0, len(ordered_temperatures) - 4)
+            total_temps = len(top_temperatures)
+            temp_specs = [
+                (
+                    name,
+                    values,
+                    dynamic_series_color(
+                        i, total_temps, saturation=0.60, lightness=0.55
+                    ),
+                )
+                for i, (name, values) in enumerate(top_temperatures)
+            ]
             self._append_chart(
                 cards,
                 "温度",
                 "系统传感器的温度",
                 ChartUnit.TEMPERATURE,
-                [(name, values, "temp") for name, values in top_temperatures],
+                temp_specs,
                 gap_seconds,
                 extra_series_count=extra_count,
+            )
+
+        fan_points: dict[str, list[tuple[datetime, float]]] = {}
+        for created, stats in valid_points:
+            raw_fans = stats.get("f")
+            if isinstance(raw_fans, dict):
+                for name, raw_value in raw_fans.items():
+                    value = safe_float(raw_value)
+                    if value is not None:
+                        fan_points.setdefault(str(name), []).append((created, value))
+        if fan_points:
+            ordered_fans = sorted(
+                fan_points.items(),
+                key=lambda item: (
+                    -max((value for _, value in item[1]), default=0.0),
+                    item[0].casefold(),
+                ),
+            )
+            total_fans = len(ordered_fans)
+            fan_specs = [
+                (
+                    name,
+                    values,
+                    dynamic_series_color(
+                        i, total_fans, saturation=0.60, lightness=0.55
+                    ),
+                )
+                for i, (name, values) in enumerate(ordered_fans)
+            ]
+            self._append_chart(
+                cards,
+                "风扇",
+                "系统风扇转速 (RPM)",
+                ChartUnit.RPM,
+                fan_specs,
+                gap_seconds,
+            )
+
+        battery_values = [
+            (created, value)
+            for created, stats in valid_points
+            if (value := self._battery_value(stats.get("bat"))) is not None
+        ]
+        if battery_values:
+            self._append_chart(
+                cards,
+                "电池电量",
+                "系统电池剩余电量",
+                ChartUnit.PERCENT,
+                [("电量", battery_values, "battery")],
+                gap_seconds,
             )
 
         gpu_samples: dict[str, list[tuple[datetime, _GpuMetric]]] = {}
@@ -784,7 +888,7 @@ class PresentationBuilder:
             for gpu in self._extract_gpus(stats.get("g")):
                 gpu_samples.setdefault(gpu.name, []).append((created, gpu))
         gpu_names = sorted(gpu_samples, key=str.casefold)
-        for gpu_name in gpu_names:
+        for i, gpu_name in enumerate(gpu_names):
             usage: list[tuple[datetime, float]] = []
             vram: list[tuple[datetime, float]] = []
             power: list[tuple[datetime, float]] = []
@@ -808,7 +912,19 @@ class PresentationBuilder:
                     f"{gpu_name} 功耗",
                     "GPU 平均能耗",
                     ChartUnit.WATTS,
-                    [("功耗", power, "gpu")],
+                    [
+                        (
+                            "功耗",
+                            power,
+                            dynamic_series_color(
+                                i,
+                                len(gpu_names),
+                                saturation=0.65,
+                                lightness=0.52,
+                                base_hue=226.0,
+                            ),
+                        )
+                    ],
                     gap_seconds,
                 )
             if usage:
@@ -895,71 +1011,6 @@ class PresentationBuilder:
                     [("读取", reads, "disk_io"), ("写入", writes, "disk_io")],
                     gap_seconds,
                 )
-
-        fan_points: dict[str, list[tuple[datetime, float]]] = {}
-        for created, stats in valid_points:
-            raw_fans = stats.get("f")
-            if isinstance(raw_fans, dict):
-                for name, raw_value in raw_fans.items():
-                    value = safe_float(raw_value)
-                    if value is not None:
-                        fan_points.setdefault(str(name), []).append((created, value))
-        if fan_points:
-            ordered_fans = sorted(
-                fan_points.items(),
-                key=lambda item: (
-                    -max((value for _, value in item[1]), default=0.0),
-                    item[0].casefold(),
-                ),
-            )
-            self._append_chart(
-                cards,
-                "风扇",
-                "系统风扇转速 (RPM)",
-                ChartUnit.RPM,
-                [(name, values, "fan") for name, values in ordered_fans],
-                gap_seconds,
-            )
-
-        battery_values = [
-            (created, value)
-            for created, stats in valid_points
-            if (value := self._battery_value(stats.get("bat"))) is not None
-        ]
-        self._append_chart(
-            cards,
-            "电池电量",
-            "系统电池剩余电量",
-            ChartUnit.PERCENT,
-            [("电量", battery_values, "battery")],
-            gap_seconds,
-        )
-
-        swap_samples: list[tuple[datetime, Any, Any, Any]] = []
-        for created, stats in valid_points:
-            used = safe_float(stats.get("su"))
-            swap_samples.append(
-                (
-                    created,
-                    used,
-                    stats.get("s"),
-                    stats.get("sp"),
-                )
-            )
-        swap_history = self._capacity_history(
-            swap_samples,
-            allow_used_without_total=True,
-        )
-        if swap_history.points and max(value for _, value in swap_history.points) > 0:
-            self._append_chart(
-                cards,
-                "Swap 交换空间",
-                "系统使用的 Swap 空间",
-                swap_history.unit,
-                [("Swap", list(swap_history.points), "swap")],
-                gap_seconds,
-                maximum_override=swap_history.maximum,
-            )
         return cards
 
     def _container_history_cards(
@@ -967,8 +1018,7 @@ class PresentationBuilder:
         points: tuple[ContainerHistoryPoint, ...],
         *,
         gap_seconds: float,
-    ) -> list[HistoryChartCard]:
-        cards: list[HistoryChartCard] = []
+    ) -> tuple[HistoryChartCard | None, HistoryChartCard | None]:
         cpu_by_container: dict[str, list[tuple[datetime, float]]] = {}
         mem_by_container: dict[str, list[tuple[datetime, float]]] = {}
 
@@ -984,7 +1034,7 @@ class PresentationBuilder:
                     )
 
         if not cpu_by_container and not mem_by_container:
-            return cards
+            return None, None
 
         threshold = max(0, min(50, self.container_history_threshold))
 
@@ -1039,18 +1089,28 @@ class PresentationBuilder:
         all_kept_names = sorted(
             set(kept_cpu_names) | set(kept_mem_names), key=str.casefold
         )
+        total_containers = len(all_kept_names)
         name_to_color = {
-            name: SERIES_PALETTE[i % len(SERIES_PALETTE)]
+            name: dynamic_series_color(
+                i,
+                total_containers,
+                saturation=0.65,
+                lightness=0.50,
+            )
             for i, name in enumerate(all_kept_names)
         }
+
+        cpu_card: HistoryChartCard | None = None
+        mem_card: HistoryChartCard | None = None
 
         if kept_cpu_names:
             cpu_specs = [
                 (name, cpu_by_container[name], name_to_color[name])
                 for name in kept_cpu_names
             ]
+            cpu_cards: list[HistoryChartCard] = []
             self._append_chart(
-                cards,
+                cpu_cards,
                 "容器 CPU 使用率",
                 "容器范围内的 CPU 使用率",
                 ChartUnit.PERCENT,
@@ -1058,14 +1118,17 @@ class PresentationBuilder:
                 gap_seconds,
                 extra_series_count=extra_cpu,
             )
+            if cpu_cards:
+                cpu_card = cpu_cards[0]
 
         if kept_mem_names:
             mem_specs = [
                 (name, mem_by_container[name], name_to_color[name])
                 for name in kept_mem_names
             ]
+            mem_cards: list[HistoryChartCard] = []
             self._append_chart(
-                cards,
+                mem_cards,
                 "容器内存使用",
                 "采集时间下的容器内存使用",
                 ChartUnit.BYTES,
@@ -1073,8 +1136,10 @@ class PresentationBuilder:
                 gap_seconds,
                 extra_series_count=extra_mem,
             )
+            if mem_cards:
+                mem_card = mem_cards[0]
 
-        return cards
+        return cpu_card, mem_card
 
     def _append_chart(
         self,

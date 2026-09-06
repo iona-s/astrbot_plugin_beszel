@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import colorsys
+
 from .models import Color
 
 RENDER_WIDTH = 1200
@@ -30,7 +32,7 @@ METRIC_COLORS: dict[str, Color] = {
     "fan": (20, 184, 166),  # Teal
     "battery": (132, 204, 22),  # Lime
     "swap": (16, 185, 129),  # Emerald
-    "load": (249, 115, 22),  # Orange
+    "load": (168, 85, 247),  # Purple (1 min)
 }
 
 # Progress meter threshold colors (from Beszel getMeterStateByThresholds)
@@ -58,6 +60,25 @@ def metric_color(metric_key: str) -> Color:
     return METRIC_COLORS.get(normalized, SERIES_PALETTE[0])
 
 
+def dynamic_series_color(
+    index: int,
+    total: int,
+    *,
+    saturation: float = 0.60,
+    lightness: float = 0.55,
+    base_hue: float = 0.0,
+) -> Color:
+    """Return deterministic HSL-distributed RGB color across the 360-degree color wheel.
+
+    Matches Beszel Hub dynamic color allocation for multi-series metrics (fans,
+    temperature sensors, containers, and GPU power).
+    """
+    count = max(1, total)
+    hue = (base_hue + (index * 360.0) / count) % 360.0
+    r, g, b = colorsys.hls_to_rgb(hue / 360.0, lightness, saturation)
+    return round(r * 255), round(g * 255), round(b * 255)
+
+
 def series_color(index: int, *, metric_key: str) -> Color:
     """Return a stable color for an ordered series set."""
     normalized = metric_key.casefold()
@@ -71,7 +92,8 @@ def series_color(index: int, *, metric_key: str) -> Color:
     if normalized == "disk_io":
         return (37, 99, 235) if index == 0 else (245, 158, 11)
     if normalized == "load":
-        load_palette = ((249, 115, 22), (37, 99, 235), (168, 85, 247))
+        # Beszel Hub load average colors: 1m (Purple), 5m (Blue), 15m (Orange)
+        load_palette = ((168, 85, 247), (37, 99, 235), (249, 115, 22))
         return load_palette[index % len(load_palette)]
     if normalized in METRIC_COLORS and index == 0:
         return METRIC_COLORS[normalized]
