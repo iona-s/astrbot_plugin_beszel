@@ -30,12 +30,20 @@ from astrbot_plugin_beszel.core.rendering.templates.environment import (
 )
 
 
-def _renderer(rendering_data) -> BeszelRenderer:
+def _png_dimensions(png: bytes) -> tuple[int, int]:
+    assert png.startswith(b"\x89PNG\r\n\x1a\n")
+    width = int.from_bytes(png[16:20], "big")
+    height = int.from_bytes(png[20:24], "big")
+    return width, height
+
+
+def _renderer(rendering_data, render_scale: int = 100) -> BeszelRenderer:
     return BeszelRenderer(
         plugin_name=rendering_data["plugin_name"],
         show_connection_address=True,
         display_timezone=ZoneInfo(rendering_data["display_timezone"]),
         font_path=None,
+        render_scale=render_scale,
     )
 
 
@@ -285,3 +293,174 @@ def test_chart_multi_series_ticks_cover_full_time_span_and_stay_in_bounds() -> N
     # 3. No adjacent tick boxes overlap
     for k in range(len(boxes) - 1):
         assert boxes[k + 1][0] >= boxes[k][1] - 1e-6
+
+
+def test_pytakumi_engine_forwards_device_pixel_ratio() -> None:
+    from astrbot_plugin_beszel.core.rendering.engine import PytakumiEngine
+
+    engine = PytakumiEngine(
+        bundled_font_path=BeszelRenderer._bundled_font_path,
+        configured_font_path=None,
+    )
+    captured: dict[str, object] = {}
+
+    class FakeNativeRenderer:
+        def render(
+            self,
+            source,
+            *,
+            width,
+            height,
+            format,
+            stylesheets,
+            font_families,
+            lang,
+            device_pixel_ratio,
+        ):
+            captured["width"] = width
+            captured["height"] = height
+            captured["device_pixel_ratio"] = device_pixel_ratio
+            return b"\x89PNG\r\n\x1a\n" + b"\x00" * 30
+
+    engine._renderer = FakeNativeRenderer()
+    png = engine.render(
+        "<html><body>test</body></html>", width=800, device_pixel_ratio=2.5
+    )
+    assert png.startswith(b"\x89PNG\r\n\x1a\n")
+    assert captured["width"] == 800
+    assert captured["device_pixel_ratio"] == 2.5
+
+
+@pytest.mark.asyncio
+async def test_beszel_renderer_forwards_scaled_width_and_dpr_to_engine(
+    overview_data, status_data, history_data, rendering_data
+) -> None:
+    systems = [SystemSummary.model_validate(item) for item in overview_data]
+    status_view = SystemDetailView.model_validate(status_data)
+    history_view = SystemHistoryView.model_validate(history_data)
+
+    class FakeEngine:
+        def __init__(self) -> None:
+            self.calls: list[dict[str, object]] = []
+
+        def render(
+            self,
+            markup: str,
+            *,
+            width: int,
+            height: int | None = None,
+            device_pixel_ratio: float = 1.0,
+        ) -> bytes:
+            self.calls.append(
+                {
+                    "width": width,
+                    "height": height,
+                    "device_pixel_ratio": device_pixel_ratio,
+                }
+            )
+            return b"\x89PNG\r\n\x1a\nfake"
+
+    test_cases = [
+        # (scale, expected_dpr, expected_history_overview_width, expected_status_width)
+        (100, 1.0, 1200, 800),
+        (200, 2.0, 2400, 1600),
+        (50, 0.5, 600, 400),
+    ]
+
+    for (
+        scale,
+        expected_dpr,
+        expected_overview_width,
+        expected_status_width,
+    ) in test_cases:
+        renderer = _renderer(rendering_data, render_scale=scale)
+        fake_engine = FakeEngine()
+        renderer._engine = fake_engine
+
+        # 1. Overview
+        await renderer.render_overview(systems, page_size=len(systems))
+        assert len(fake_engine.calls) == 1
+        assert fake_engine.calls[0]["width"] == expected_overview_width
+        assert fake_engine.calls[0]["device_pixel_ratio"] == expected_dpr
+
+        # 2. Status
+        fake_engine.calls.clear()
+        await renderer.render_status(status_view)
+        assert len(fake_engine.calls) == 1
+        assert fake_engine.calls[0]["width"] == expected_status_width
+        assert fake_engine.calls[0]["device_pixel_ratio"] == expected_dpr
+
+        # 3. History
+        fake_engine.calls.clear()
+        await renderer.render_history(history_view)
+        assert len(fake_engine.calls) == 1
+        assert fake_engine.calls[0]["width"] == expected_overview_width
+        assert fake_engine.calls[0]["device_pixel_ratio"] == expected_dpr
+
+
+@pytest.mark.asyncio
+async def test_render_scale_dimensions_and_normalized_height(
+    overview_data, status_data, history_data, rendering_data
+) -> None:
+    systems = [SystemSummary.model_validate(item) for item in overview_data]
+    status_view = SystemDetailView.model_validate(status_data)
+    history_view = SystemHistoryView.model_validate(history_data)
+
+    scale_cases = [
+        (100, 1200, 800),
+        (200, 2400, 1600),
+        (50, 600, 400),
+    ]
+
+    results: dict[int, dict[str, tuple[int, int]]] = {}
+
+    for scale, expected_history_width, expected_status_width in scale_cases:
+        renderer = _renderer(rendering_data, render_scale=scale)
+        try:
+            overview_pngs = await renderer.render_overview(
+                systems, page_size=len(systems)
+            )
+            status_png = await renderer.render_status(status_view)
+            history_png = await renderer.render_history(history_view)
+
+            assert len(overview_pngs) == 1
+            overview_w, overview_h = _png_dimensions(overview_pngs[0])
+            status_w, status_h = _png_dimensions(status_png)
+            history_w, history_h = _png_dimensions(history_png)
+
+            assert overview_w == expected_history_width
+            assert history_w == expected_history_width
+            assert status_w == expected_status_width
+
+            results[scale] = {
+                "overview": (overview_w, overview_h),
+                "status": (status_w, status_h),
+                "history": (history_w, history_h),
+            }
+        finally:
+            renderer.close()
+
+    # Verify normalized height tolerance: abs(h_scaled / dpr - h_base) / h_base <= 3%
+    base_overview_h = results[100]["overview"][1]
+    base_status_h = results[100]["status"][1]
+    base_history_h = results[100]["history"][1]
+
+    for scale, dpr in [(50, 0.5), (200, 2.0)]:
+        overview_norm_h = results[scale]["overview"][1] / dpr
+        status_norm_h = results[scale]["status"][1] / dpr
+        history_norm_h = results[scale]["history"][1] / dpr
+
+        assert abs(overview_norm_h - base_overview_h) / base_overview_h <= 0.03
+        assert abs(status_norm_h - base_status_h) / base_status_h <= 0.03
+        assert abs(history_norm_h - base_history_h) / base_history_h <= 0.03
+
+    # Multipage overview dimension consistency check at 150%
+    renderer_multi = _renderer(rendering_data, render_scale=150)
+    try:
+        multi_pngs = await renderer_multi.render_overview(systems, page_size=4)
+        assert len(multi_pngs) == 3
+        for png in multi_pngs:
+            w, _h = _png_dimensions(png)
+            assert w == 1800
+    finally:
+        renderer_multi.close()

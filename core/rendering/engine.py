@@ -42,7 +42,14 @@ class PytakumiEngine:
                 "🖼️ 图片渲染引擎初始化失败，请检查字体文件与系统环境"
             ) from exc
 
-    def render(self, markup: str, *, width: int, height: int | None = None) -> bytes:
+    def render(
+        self,
+        markup: str,
+        *,
+        width: int,
+        height: int | None = None,
+        device_pixel_ratio: float = 1.0,
+    ) -> bytes:
         """Render local markup to a non-empty PNG byte string."""
         if not isinstance(markup, str) or not markup:
             raise RenderingError("图片渲染内容为空")
@@ -54,6 +61,7 @@ class PytakumiEngine:
                 source,
                 width=width,
                 height=height,
+                device_pixel_ratio=device_pixel_ratio,
             )
         except Exception as exc:
             logger.debug("Pytakumi render failed: %s", type(exc).__name__)
@@ -65,7 +73,14 @@ class PytakumiEngine:
             raise RenderingError("图片渲染结果不是有效 PNG")
         return png
 
-    def _render_native(self, source, *, width: int, height: int | None) -> bytes:
+    def _render_native(
+        self,
+        source,
+        *,
+        width: int,
+        height: int | None,
+        device_pixel_ratio: float = 1.0,
+    ) -> bytes:
         return self._renderer.render(
             source,
             width=width,
@@ -74,6 +89,7 @@ class PytakumiEngine:
             stylesheets=[self.stylesheet] if self.stylesheet else None,
             font_families=[self.font_family],
             lang="zh-CN",
+            device_pixel_ratio=device_pixel_ratio,
         )
 
     def _register_selected_font(

@@ -18,7 +18,8 @@
     "render": {
       "page_size": 10,
       "show_connection_address": true,
-      "font_path": "  /tmp/fixture-font.otf  "
+      "font_path": "  /tmp/fixture-font.otf  ",
+      "render_scale": 150
     },
     "webhook": {
       "enabled": true,
@@ -52,6 +53,36 @@
   "cache_ttl_default_fallback": {
     "beszel": {"cache_ttl_seconds": null}
   },
+  "render_scale_cases": {
+    "min_50": {
+      "raw": {"render": {"render_scale": 50}},
+      "expected": 50
+    },
+    "step_free_51": {
+      "raw": {"render": {"render_scale": 51}},
+      "expected": 51
+    },
+    "default_100": {
+      "raw": {"render": {"render_scale": 100}},
+      "expected": 100
+    },
+    "scaled_150": {
+      "raw": {"render": {"render_scale": 150}},
+      "expected": 150
+    },
+    "max_300": {
+      "raw": {"render": {"render_scale": 300}},
+      "expected": 300
+    },
+    "fallback_none": {
+      "raw": {"render": {"render_scale": null}},
+      "expected": 100
+    },
+    "fallback_missing": {
+      "raw": {},
+      "expected": 100
+    }
+  },
   "astrbot_timezone": "Australia/Sydney",
   "expected": {
     "minimal": {
@@ -60,6 +91,7 @@
       "history_default_range": "1h",
       "access_mode": "admin_only",
       "page_size": 20,
+      "render_scale": 100,
       "webhook_enabled": false,
       "cache_ttl_seconds": 60
     },
@@ -69,6 +101,7 @@
       "allowed_umos": ["aiocqhttp:group:fixture"],
       "timezone": "Asia/Shanghai",
       "font_path": "/tmp/fixture-font.otf",
+      "render_scale": 150,
       "webhook_path": "/notify",
       "webhook_enabled": true,
       "webhook_token": "fixture-webhook-token",
@@ -113,6 +146,26 @@
     {
       "name": "cache_ttl_type",
       "raw": {"beszel": {"cache_ttl_seconds": "15"}}
+    },
+    {
+      "name": "render_scale_low",
+      "raw": {"render": {"render_scale": 49}}
+    },
+    {
+      "name": "render_scale_high",
+      "raw": {"render": {"render_scale": 301}}
+    },
+    {
+      "name": "render_scale_type",
+      "raw": {"render": {"render_scale": "100"}}
+    },
+    {
+      "name": "render_scale_bool",
+      "raw": {"render": {"render_scale": true}}
+    },
+    {
+      "name": "render_scale_float",
+      "raw": {"render": {"render_scale": 150.0}}
     }
   ]
 }

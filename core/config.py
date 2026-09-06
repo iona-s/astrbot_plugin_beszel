@@ -75,6 +75,7 @@ class RenderConfig:
     show_connection_address: bool = False
     font_path: str = ""
     container_history_threshold: int = 10
+    render_scale: int = 100
 
 
 @dataclass(frozen=True, slots=True)
@@ -187,6 +188,18 @@ class PluginConfig:
                 "render.container_history_threshold 容器历史过滤阈值必须在 0 到 50 之间"
             )
 
+        render_scale = render_raw.get("render_scale", 100)
+        if render_scale is None:
+            render_scale = 100
+        if (
+            isinstance(render_scale, bool)
+            or not isinstance(render_scale, int)
+            or not 50 <= render_scale <= 300
+        ):
+            raise ConfigurationError(
+                "render.render_scale 图片渲染精细度必须在 50 到 300 之间"
+            )
+
         webhook_raw = _mapping(data.get("webhook"))
         enabled = bool(webhook_raw.get("enabled", False))
         port = webhook_raw.get("port", 8899)
@@ -255,6 +268,7 @@ class PluginConfig:
                 ),
                 font_path=_opt_str(render_raw.get("font_path")),
                 container_history_threshold=container_threshold,
+                render_scale=render_scale,
             ),
             webhook=WebhookConfig(
                 enabled=enabled,

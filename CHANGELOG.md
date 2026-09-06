@@ -9,6 +9,7 @@
 
 ### 新增
 
+- 支持配置图片渲染精细度缩放（`render.render_scale`，50% ~ 300%，默认 100%）。
 - 为 `/beszel history`、LLM 工具及 Webhook 历史图新增 Docker/Podman 容器 CPU 与内存历史趋势折线图（按图表 Y 轴最大值百分比阈值过滤低占用容器）。
 
 ### 优化

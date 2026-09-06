@@ -33,6 +33,7 @@ class BeszelRenderer:
         display_timezone: tzinfo,
         font_path: str | Path | None,
         container_history_threshold: int = 10,
+        render_scale: int = 100,
     ) -> None:
         self.presentation = PresentationBuilder(
             plugin_name=plugin_name,
@@ -42,7 +43,13 @@ class BeszelRenderer:
         )
         self.templates = BeszelTemplateRenderer()
         self._font_path = font_path
+        self._render_scale = render_scale
         self._engine: PytakumiEngine | None = None
+
+    def _scaled_dimensions(self, base_width: int) -> tuple[int, float]:
+        target_width = round(base_width * self._render_scale / 100)
+        dpr = self._render_scale / 100.0
+        return target_width, dpr
 
     @property
     def engine(self) -> PytakumiEngine:
@@ -81,6 +88,7 @@ class BeszelRenderer:
                 offline_count += 1
         summary_counts = (len(systems), online_count, offline_count)
         outputs: list[bytes] = []
+        width, dpr = self._scaled_dimensions(RENDER_WIDTH)
         for page_number, start in enumerate(range(0, len(systems), page_size), start=1):
             page = systems[start : start + page_size]
             document = self.presentation.build_overview(
@@ -94,7 +102,8 @@ class BeszelRenderer:
                 await asyncio.to_thread(
                     self.engine.render,
                     markup,
-                    width=RENDER_WIDTH,
+                    width=width,
+                    device_pixel_ratio=dpr,
                 )
             )
         return outputs
@@ -103,10 +112,12 @@ class BeszelRenderer:
         await self.initialize()
         document = self.presentation.build_status(view)
         markup = self.templates.render_status(document)
+        width, dpr = self._scaled_dimensions(STATUS_RENDER_WIDTH)
         return await asyncio.to_thread(
             self.engine.render,
             markup,
-            width=STATUS_RENDER_WIDTH,
+            width=width,
+            device_pixel_ratio=dpr,
         )
 
     async def render_history(self, view: SystemHistoryView) -> bytes:
@@ -116,10 +127,12 @@ class BeszelRenderer:
             document,
             timezone=self.presentation.display_timezone,
         )
+        width, dpr = self._scaled_dimensions(RENDER_WIDTH)
         return await asyncio.to_thread(
             self.engine.render,
             markup,
-            width=RENDER_WIDTH,
+            width=width,
+            device_pixel_ratio=dpr,
         )
 
     def close(self) -> None:

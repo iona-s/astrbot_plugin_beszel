@@ -15,6 +15,7 @@ def test_minimal_config_uses_documented_defaults(config_data) -> None:
     assert config.beszel.cache_ttl_seconds == expected["cache_ttl_seconds"]
     assert config.access.mode == expected["access_mode"]
     assert config.render.page_size == expected["page_size"]
+    assert config.render.render_scale == expected["render_scale"]
     assert config.webhook.enabled is expected["webhook_enabled"]
 
 
@@ -30,6 +31,7 @@ def test_complete_config_normalizes_values(config_data) -> None:
     assert config.access.allowed_umos == tuple(expected["allowed_umos"])
     assert config.display.timezone == expected["timezone"]
     assert config.render.font_path == expected["font_path"]
+    assert config.render.render_scale == expected["render_scale"]
     assert config.webhook.path == expected["webhook_path"]
     assert config.webhook.enabled is expected["webhook_enabled"]
     assert config.webhook.token == expected["webhook_token"]
@@ -56,6 +58,11 @@ def test_astrbot_timezone_is_used_when_display_timezone_is_empty(config_data) ->
         "cache_ttl_negative",
         "cache_ttl_overflow",
         "cache_ttl_type",
+        "render_scale_low",
+        "render_scale_high",
+        "render_scale_type",
+        "render_scale_bool",
+        "render_scale_float",
     ],
 )
 def test_invalid_config_cases_raise_configuration_error(config_data, case: str) -> None:
@@ -123,3 +130,23 @@ def test_container_history_threshold_config_parsing_and_validation() -> None:
             PluginConfig.from_mapping(
                 {"render": {"container_history_threshold": invalid}}
             )
+
+
+@pytest.mark.parametrize(
+    "case_name",
+    [
+        "min_50",
+        "step_free_51",
+        "default_100",
+        "scaled_150",
+        "max_300",
+        "fallback_none",
+        "fallback_missing",
+    ],
+)
+def test_render_scale_fixtures_support_valid_and_fallback_cases(
+    config_data, case_name: str
+) -> None:
+    case = config_data["render_scale_cases"][case_name]
+    config = PluginConfig.from_mapping(case["raw"])
+    assert config.render.render_scale == case["expected"]
