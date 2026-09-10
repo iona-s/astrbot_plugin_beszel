@@ -5,7 +5,7 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，并遵循
 [语义化版本 2.0.0](https://semver.org/lang/zh-CN/)。
 
-## [未发布]
+## [v1.1.0] - 2026-09-10
 
 ### 新增
 
@@ -45,5 +45,6 @@
 - 日志严格隐藏密码、PocketBase Token、Webhook Token 和探针连接地址，保留排障所需的
   会话标识、主机名与监控指标。
 
-[未发布]: https://github.com/iona-s/astrbot_plugin_beszel/compare/v1.0.0...HEAD
+[未发布]: https://github.com/iona-s/astrbot_plugin_beszel/compare/v1.1.0...HEAD
+[v1.1.0]: https://github.com/iona-s/astrbot_plugin_beszel/compare/v1.0.0...v1.1.0
 [v1.0.0]: https://github.com/iona-s/astrbot_plugin_beszel/releases/tag/v1.0.0

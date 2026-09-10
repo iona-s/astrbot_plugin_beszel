@@ -6,3 +6,5 @@
 /AGENTS.md export-ignore
 /CONTRIBUTING.md export-ignore
 /ruff.toml export-ignore
+/tests export-ignore
+/tests/** export-ignore
