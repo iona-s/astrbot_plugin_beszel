@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC, datetime
 
 import pytest
@@ -252,6 +253,61 @@ async def test_required_hub_failures_propagate(
     setattr(fixture_client, client_method, failing_call)
     with pytest.raises(BeszelTransportError):
         await getattr(service, query)(query_data["detail_system_id"])
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("query", "client_methods"),
+    [
+        (
+            "get_system_detail",
+            (
+                "get_system",
+                "get_system_details",
+                "get_latest_metrics",
+                "get_latest_containers",
+            ),
+        ),
+        (
+            "get_system_history",
+            (
+                "get_system",
+                "get_history",
+                "get_container_history",
+                "get_system_details",
+            ),
+        ),
+    ],
+)
+async def test_independent_hub_reads_run_concurrently(
+    query: str, client_methods: tuple[str, ...], fixture_client, query_data
+) -> None:
+    service = QueryService(fixture_client, default_history_range=HistoryRange.ONE_HOUR)
+    started: set[str] = set()
+    all_started = asyncio.Event()
+
+    def gated(name: str):
+        original = getattr(fixture_client, name)
+
+        async def call(*args):
+            started.add(name)
+            if len(started) == len(client_methods):
+                all_started.set()
+            await all_started.wait()
+            return await original(*args)
+
+        return call
+
+    for name in client_methods:
+        setattr(fixture_client, name, gated(name))
+
+    # A sequential implementation would block on the first gate forever.
+    view = await asyncio.wait_for(
+        getattr(service, query)(query_data["detail_system_id"]), timeout=5
+    )
+
+    assert started == set(client_methods)
+    assert view.summary.id == query_data["detail_system_id"]
 
 
 @pytest.mark.asyncio

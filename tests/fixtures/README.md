@@ -22,11 +22,11 @@ specifically for this repository. All hostnames use the reserved `.example` doma
   missing `stats` object.
 - `config.json`: minimal, complete, inherited-timezone, and invalid plugin
   configuration mappings.
-- `webhook.json`: normalized notification formats, authentication headers, and
-  malformed or unsupported requests.
+- `webhook.json`: normalized notification formats, authentication headers,
+  malformed or unsupported requests, and Beszel system-matching cases.
 - `client.json`: PocketBase pagination metadata, plain token claims that tests
-  assemble into placeholder tokens at runtime, retry
-  responses, and HTTP error payloads; successful records are sourced from the
+  assemble into placeholder tokens at runtime, retry responses, HTTP error
+  payloads, and malformed records; successful records are sourced from the
   monitoring fixtures.
 - `query.json`: selectors, system IDs, history-range inputs, and a live status
   override for query service scenarios.
