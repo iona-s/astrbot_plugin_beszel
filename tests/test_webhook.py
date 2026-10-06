@@ -30,6 +30,8 @@ from astrbot_plugin_beszel.core.webhook.models import (
     NotificationSource,
 )
 from astrbot_plugin_beszel.core.webhook.parsers import (
+    MAX_BODY_BYTES,
+    MAX_TEXT_LENGTH,
     WebhookPayloadError,
     analysis_requested,
     attach_history,
@@ -141,6 +143,88 @@ def test_invalid_webhook_payloads_return_explicit_status(
             request_id=webhook_data["request_ids"]["invalid"],
         )
     assert exc_info.value.status == expected_status
+
+
+def test_attach_history_binds_beszel_systems_by_link_or_title(webhook_data) -> None:
+    for case in webhook_data["system_matching"]:
+        notification = NormalizedNotification(
+            request_id=webhook_data["request_ids"]["history"],
+            source=NotificationSource(case["source"]),
+            title=case["title"],
+            message=case["message"],
+            send_history=True,
+        )
+
+        attached = attach_history(notification, case["systems"])
+
+        assert attached.history_system_id == case["expected"], case["case"]
+        expected_source = (
+            NotificationSource.BESZEL if case["expected"] else notification.source
+        )
+        assert attached.source is expected_source, case["case"]
+
+
+def test_json_payload_with_utf8_bom_is_parsed_as_json(webhook_data) -> None:
+    case = webhook_data["bom_json"]
+
+    notification = parse_payload(
+        b"\xef\xbb\xbf" + _encoded_body(case),
+        content_type=case["content_type"],
+        headers=case["headers"],
+        request_id=webhook_data["request_ids"]["generic"],
+    )
+
+    assert notification.source is NotificationSource.BESZEL
+    assert notification.title == case["body"]["title"]
+    assert notification.message == case["body"]["message"]
+    assert notification.send_history is True
+    assert notification.send_analysis is True
+
+
+def test_undecodable_json_falls_back_to_plain_text(webhook_data) -> None:
+    limits = webhook_data["hostile_json"]
+    depth = limits["nesting_depth"]
+    bodies = (
+        b'{"message": ' + b"9" * limits["integer_digits"] + b"}",
+        b"[" * depth + b"]" * depth,
+    )
+
+    for body in bodies:
+        notification = parse_payload(
+            body,
+            content_type="application/json",
+            headers={},
+            request_id=webhook_data["request_ids"]["plain"],
+        )
+
+        assert notification.source is NotificationSource.SHOUTRRR
+        assert notification.message == body.decode("ascii")[: MAX_TEXT_LENGTH - 1] + "…"
+
+
+def test_payload_size_limit_counts_raw_bytes(webhook_data) -> None:
+    with pytest.raises(WebhookPayloadError) as exc_info:
+        parse_payload(
+            b"x" * (MAX_BODY_BYTES + 1),
+            content_type="text/plain",
+            headers={},
+            request_id=webhook_data["request_ids"]["invalid"],
+        )
+    assert exc_info.value.status == 413
+
+    case = webhook_data["escaped_cjk"]
+    message = case["message_unit"] * case["message_repeat"]
+    body = json.dumps({"title": case["title"], "message": message}).encode("ascii")
+    assert len(body) <= MAX_BODY_BYTES
+
+    notification = parse_payload(
+        body,
+        content_type=case["content_type"],
+        headers=case["headers"],
+        request_id=webhook_data["request_ids"]["generic"],
+    )
+
+    assert notification.title == case["title"]
+    assert notification.message == message[: MAX_TEXT_LENGTH - 1] + "…"
 
 
 class _FakeRequest:
@@ -548,6 +632,44 @@ async def test_loopback_server_handles_non_ascii_auth_over_http(webhook_data) ->
             body = await response.json()
             assert body["status"] == "unauthorized"
             assert "request_id" in body
+    finally:
+        await server.stop()
+
+
+@pytest.mark.asyncio
+async def test_loopback_server_rejects_oversized_body_with_413(webhook_data) -> None:
+    import aiohttp
+
+    config = WebhookConfig(
+        enabled=True,
+        host="127.0.0.1",
+        port=0,
+        path=webhook_data["server"]["path"],
+        token=webhook_data["auth"]["token"],
+        target_umos=("aiocqhttp:GroupMessage:123456",),
+    )
+    delivery = _FakeDelivery()
+    server = WebhookServer(config, delivery, _FakeHistoryService())
+    await server.start()
+    try:
+        assert server._site is not None and server._site._server is not None
+        port = server._site._server.sockets[0].getsockname()[1]
+        async with (
+            aiohttp.ClientSession() as session,
+            session.post(
+                f"http://127.0.0.1:{port}{config.path}",
+                headers={
+                    "Authorization": webhook_data["auth"]["valid"],
+                    "Content-Type": "text/plain",
+                },
+                data=b"x" * (MAX_BODY_BYTES + 1),
+            ) as response,
+        ):
+            assert response.status == 413
+            body = await response.json()
+            assert body["status"] == "invalid"
+            assert body["request_id"]
+        assert delivery.notifications == []
     finally:
         await server.stop()
 

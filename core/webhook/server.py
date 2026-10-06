@@ -11,7 +11,7 @@ from astrbot.api import logger
 from ..beszel.service import QueryService
 from ..config import WebhookConfig
 from .delivery import WebhookDelivery
-from .parsers import WebhookPayloadError, parse_payload
+from .parsers import MAX_BODY_BYTES, WebhookPayloadError, parse_payload
 
 
 class WebhookServer:
@@ -32,7 +32,7 @@ class WebhookServer:
     async def start(self) -> None:
         if not self.config.enabled or self._runner is not None:
             return
-        app = web.Application(client_max_size=2 * 1024 * 1024)
+        app = web.Application(client_max_size=MAX_BODY_BYTES)
         app.router.add_get("/healthz", self.healthz)
         app.router.add_post(self.config.path, self.notify)
         self._runner = web.AppRunner(app)
@@ -119,16 +119,15 @@ class WebhookServer:
                 notification.send_history,
                 notification.send_analysis,
             )
-        except WebhookPayloadError as exc:
-            status = exc.status
+        except (WebhookPayloadError, web.HTTPRequestEntityTooLarge) as exc:
             logger.debug(
-                "Webhook request id=%s payload parse error: %s -> HTTP %d",
+                "Webhook request id=%s payload rejected: %s -> HTTP %d",
                 request_id,
                 exc,
-                status,
+                exc.status,
             )
             return web.json_response(
-                {"request_id": request_id, "status": "invalid"}, status=status
+                {"request_id": request_id, "status": "invalid"}, status=exc.status
             )
         try:
             text_successes = await self.delivery.deliver(notification)

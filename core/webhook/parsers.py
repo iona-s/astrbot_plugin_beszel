@@ -10,6 +10,7 @@ from dataclasses import replace
 from .models import NormalizedNotification, NotificationSource
 
 MAX_TEXT_LENGTH = 4000
+MAX_BODY_BYTES = 64 * 1024
 _SYSTEM_LINK_RE = re.compile(r"/system/([^/?#\s]+)", re.IGNORECASE)
 _HISTORY_SOURCES = frozenset(
     {
@@ -24,7 +25,7 @@ class WebhookPayloadError(ValueError):
     """The webhook body is unsupported or missing a safe message.
 
     ``status`` is the HTTP status the receiver should answer with (415 for
-    unsupported media, 400 for invalid payloads).
+    unsupported media, 413 for oversized bodies, 400 for invalid payloads).
     """
 
     def __init__(self, message: str, *, status: int = 400) -> None:
@@ -49,26 +50,45 @@ def parse_payload(
     headers: Mapping[str, str],
     request_id: str,
 ) -> NormalizedNotification:
-    """Normalize one request without retaining or serializing its raw body."""
+    """Normalize one request without retaining or serializing its raw body.
+
+    The size limit applies to raw bytes so ASCII-escaped JSON is not rejected
+    for its escaped length; individual fields are truncated afterwards. JSON
+    that cannot be decoded, including oversized integers and deep nesting, is
+    handled as plain text.
+
+    Args:
+        body: Raw request body.
+        content_type: Request ``Content-Type`` header value.
+        headers: Request headers used for the explicit source override.
+        request_id: Correlation ID carried by the notification.
+
+    Returns:
+        The normalized notification.
+
+    Raises:
+        WebhookPayloadError: The body is empty, too large, not UTF-8, uses an
+            unsupported media type, or lacks a message.
+    """
     if not body:
         raise WebhookPayloadError("empty webhook payload")
+    if len(body) > MAX_BODY_BYTES:
+        raise WebhookPayloadError("webhook body is too large", status=413)
     media_type = content_type.split(";", 1)[0].strip().casefold()
     if media_type in {"multipart/form-data", "application/x-www-form-urlencoded"}:
         raise WebhookPayloadError("unsupported webhook media type", status=415)
     if media_type not in {"application/json", "text/json", "text/plain", ""}:
         raise WebhookPayloadError("unsupported webhook media type", status=415)
     try:
-        text = body.decode("utf-8")
+        text = body.decode("utf-8-sig")
     except UnicodeDecodeError as exc:
         raise WebhookPayloadError("webhook body is not UTF-8 text", status=415) from exc
-    if len(text) > MAX_TEXT_LENGTH * 4:
-        raise WebhookPayloadError("webhook body is too large")
 
     data: object = None
     if media_type in {"application/json", "text/json"}:
         try:
             data = json.loads(text)
-        except json.JSONDecodeError:
+        except (ValueError, RecursionError):
             data = None
     if isinstance(data, dict) and _looks_like_uptime_kuma(data):
         notification = _parse_uptime_kuma(data, request_id=request_id)
@@ -164,26 +184,45 @@ def _system_candidate(
     *,
     allow_title: bool,
 ) -> str | None:
-    match = _SYSTEM_LINK_RE.search(message)
-    if match and match.group(1) in known_systems:
-        return match.group(1)
-    if not allow_title:
-        return None
+    """Resolve the Beszel system an alert refers to.
+
+    A ``/system/<id>`` link is Beszel's authoritative identifier. When links
+    exist but none is known (the account cannot see the system or the list is
+    stale), the title is not consulted, because it could bind another system
+    with a similar name.
+
+    Args:
+        title: Notification title.
+        message: Notification message that may contain system links.
+        known_systems: Visible system names keyed by system ID.
+        allow_title: Whether Beszel title formats may identify the system.
+
+    Returns:
+        The matched system ID, or ``None`` when no unambiguous match exists.
+    """
+    link_ids = [match.group(1) for match in _SYSTEM_LINK_RE.finditer(message)]
+    if link_ids or not allow_title:
+        return next((item for item in link_ids if item in known_systems), None)
+    # Beszel titles are "<name> <metric> above|below threshold" and
+    # "Connection to <name> is <up|down> <emoji>"; the trailing space stops a
+    # name from matching a longer name that shares its prefix.
     title_folded = title.casefold()
-    candidates = []
+    candidates: dict[str, int] = {}
     for system_id, name in known_systems.items():
         name_folded = name.casefold()
+        threshold_prefix = f"{name_folded} "
         threshold_title = (
-            title_folded.startswith(name_folded)
-            and "threshold" in title_folded[len(name_folded) :]
+            title_folded.startswith(threshold_prefix)
+            and "threshold" in title_folded[len(threshold_prefix) :]
         )
-        connection_title = title_folded in {
-            f"connection to {name_folded} is up",
-            f"connection to {name_folded} is down",
-        }
+        connection_title = title_folded.startswith(f"connection to {name_folded} is ")
         if threshold_title or connection_title:
-            candidates.append(system_id)
-    return candidates[0] if len(candidates) == 1 else None
+            candidates[system_id] = len(name_folded)
+    if not candidates:
+        return None
+    longest = max(candidates.values())
+    best = [system_id for system_id, size in candidates.items() if size == longest]
+    return best[0] if len(best) == 1 else None
 
 
 def _source(value: object) -> NotificationSource:

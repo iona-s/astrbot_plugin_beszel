@@ -83,5 +83,106 @@
     "content_type": "multipart/form-data; boundary=fixture",
     "headers": {},
     "body": "field=value"
+  },
+  "system_matching": [
+    {
+      "case": "threshold title prefers the longer name sharing a prefix",
+      "source": "beszel",
+      "systems": {"fixture-db": "db", "fixture-db-replica": "db-replica"},
+      "title": "db-replica CPU above threshold",
+      "message": "Fixture alert without a link",
+      "expected": "fixture-db-replica"
+    },
+    {
+      "case": "threshold title binds the shorter name only on a word boundary",
+      "source": "beszel",
+      "systems": {"fixture-db": "db", "fixture-db-replica": "db-replica"},
+      "title": "db Memory above threshold",
+      "message": "Fixture alert without a link",
+      "expected": "fixture-db"
+    },
+    {
+      "case": "names separated by a space pick the longest match",
+      "source": "beszel",
+      "systems": {"fixture-atlas": "atlas", "fixture-atlas-gateway": "Atlas Gateway"},
+      "title": "Atlas Gateway memory above threshold",
+      "message": "Fixture alert without a link",
+      "expected": "fixture-atlas-gateway"
+    },
+    {
+      "case": "equally long matching names are ambiguous",
+      "source": "beszel",
+      "systems": {"fixture-atlas-upper": "Atlas", "fixture-atlas-lower": "atlas"},
+      "title": "Atlas CPU above threshold",
+      "message": "Fixture alert without a link",
+      "expected": null
+    },
+    {
+      "case": "connection title with a status emoji",
+      "source": "beszel",
+      "systems": {"fixture-atlas": "Atlas"},
+      "title": "Connection to Atlas is down 🔴",
+      "message": "Fixture alert without a link",
+      "expected": "fixture-atlas"
+    },
+    {
+      "case": "connection title does not bind a shorter shared prefix",
+      "source": "beszel",
+      "systems": {"fixture-db": "db", "fixture-db-replica": "db-replica"},
+      "title": "Connection to db-replica is up ✅",
+      "message": "Fixture alert without a link",
+      "expected": "fixture-db-replica"
+    },
+    {
+      "case": "unknown link blocks the title fallback",
+      "source": "beszel",
+      "systems": {"fixture-atlas": "Atlas"},
+      "title": "Atlas CPU above threshold",
+      "message": "Open /system/fixture-hidden for details",
+      "expected": null
+    },
+    {
+      "case": "a later link may carry the known ID",
+      "source": "beszel",
+      "systems": {"fixture-atlas": "Atlas"},
+      "title": "Fixture alert",
+      "message": "See /system/fixture-hidden and /system/fixture-atlas",
+      "expected": "fixture-atlas"
+    },
+    {
+      "case": "generic source ignores a matching title",
+      "source": "generic",
+      "systems": {"fixture-atlas": "Atlas"},
+      "title": "Atlas CPU above threshold",
+      "message": "Fixture alert without a link",
+      "expected": null
+    },
+    {
+      "case": "shoutrrr source binds a known link",
+      "source": "shoutrrr",
+      "systems": {"fixture-atlas": "Atlas"},
+      "title": "Fixture alert",
+      "message": "Open /system/fixture-atlas for details",
+      "expected": "fixture-atlas"
+    }
+  ],
+  "bom_json": {
+    "content_type": "application/json",
+    "headers": {},
+    "body": {
+      "source": "beszel",
+      "title": "Fixture BOM alert",
+      "message": "Synthetic notification body",
+      "send_history": true,
+      "send_analysis": "true"
+    }
+  },
+  "hostile_json": {"integer_digits": 5000, "nesting_depth": 8000},
+  "escaped_cjk": {
+    "content_type": "application/json",
+    "headers": {},
+    "title": "Fixture escaped alert",
+    "message_unit": "告警",
+    "message_repeat": 2500
   }
 }
