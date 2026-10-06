@@ -18,6 +18,7 @@ from ..errors import (
     BeszelAuthError,
     BeszelProtocolError,
     BeszelTransportError,
+    SystemNotFoundError,
 )
 from .models import (
     ContainerHistoryMetrics,
@@ -34,6 +35,7 @@ USER_AGENT = "astrbot-plugin-beszel/1.1.0"
 MAX_RESPONSE_BYTES = 8 * 1024 * 1024
 TOKEN_RENEWAL_MARGIN_SECONDS = 60
 TOKEN_FALLBACK_LIFETIME_SECONDS = 3600
+SYSTEM_FIELDS = "id,name,status,updated,info,host,port"
 
 
 class BeszelClient:
@@ -300,10 +302,7 @@ class BeszelClient:
     async def list_systems(self) -> list[SystemSummary]:
         records = await self._list_records(
             "systems",
-            params={
-                "fields": "id,name,status,updated,info,host,port",
-                "sort": "name",
-            },
+            params={"fields": SYSTEM_FIELDS, "sort": "name"},
         )
         systems: list[SystemSummary] = []
         for record in records:
@@ -318,6 +317,36 @@ class BeszelClient:
         if records and not systems:
             raise BeszelProtocolError("⚠️ Beszel 探针列表数据解析失败")
         return systems
+
+    async def get_system(self, system_id: str) -> SystemSummary:
+        """Read one live ``systems`` record by ID.
+
+        Args:
+            system_id: Beszel system record ID.
+
+        Returns:
+            The current system summary.
+
+        Raises:
+            SystemNotFoundError: The record no longer exists or is not visible
+                to the configured account.
+            BeszelProtocolError: The record does not match the systems contract.
+        """
+        try:
+            payload = await self._authenticated_json(
+                f"/api/collections/systems/records/{quote(system_id, safe='')}",
+                params={"fields": SYSTEM_FIELDS},
+            )
+        except BeszelTransportError as exc:
+            if exc.status_code == 404:
+                raise SystemNotFoundError(
+                    f"🔍 未找到 ID 为「{system_id}」的探针节点，可发送 /beszel list 查看所有可用探针"
+                ) from exc
+            raise
+        try:
+            return SystemSummary.model_validate(payload)
+        except ValueError as exc:
+            raise BeszelProtocolError("⚠️ Beszel 探针数据解析失败") from exc
 
     async def get_system_details(self, system_id: str) -> SystemDetails | None:
         try:

@@ -2,6 +2,7 @@
   "responses": {
     "auth": {"status": 200, "body": {"token": "fixture-client-token"}},
     "systems": {"status": 200, "body": {"totalPages": 2, "items": []}},
+    "system": {"status": 200, "body": {}},
     "details": {"status": 200, "body": {}},
     "metrics": {"status": 200, "body": {"totalPages": 1, "items": []}},
     "containers": {
@@ -27,6 +28,7 @@
   "containers_source": "status.json",
   "history_source": "history_1h.json",
   "system_id": "pubdelta0000004",
+  "missing_system": {"id": "fixture/missing", "path_suffix": "/records/fixture%2Fmissing"},
   "expected_requests": {
     "login_body": {
       "identity": "reader@fixture.example",

@@ -17,6 +17,7 @@ from astrbot_plugin_beszel.core.errors import (
     BeszelAuthError,
     BeszelProtocolError,
     BeszelTransportError,
+    SystemNotFoundError,
 )
 
 
@@ -341,6 +342,45 @@ async def test_get_container_history_empty_and_invalid_records(
     # Only the 1 valid record should be kept
     assert len(results) == 1
     assert results[0].stats[0].name == "app"
+
+
+@pytest.mark.asyncio
+async def test_get_system_reads_live_record_and_maps_missing_record(
+    overview_data, client_data, config_data, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    system_id = client_data["system_id"]
+    record = next(item for item in overview_data if item["id"] == system_id)
+    missing = client_data["missing_system"]
+
+    def response_factory(request: dict) -> _FakeResponse:
+        if request["path"].endswith("/auth-with-password"):
+            auth = client_data["responses"]["auth"]
+            return _FakeResponse(auth["status"], auth["body"])
+        if request["path"].endswith(f"/collections/systems/records/{system_id}"):
+            response = client_data["responses"]["system"]
+            return _FakeResponse(response["status"], {**response["body"], **record})
+        error = client_data["default_error"]
+        return _FakeResponse(error["status"], error["body"])
+
+    session = FixtureSession(response_factory)
+    client = _client_with_session(config_data, session, monkeypatch)
+
+    system = await client.get_system(system_id)
+    with pytest.raises(SystemNotFoundError, match="未找到"):
+        await client.get_system(missing["id"])
+    await client.close()
+
+    assert (system.id, system.status) == (system_id, record["status"])
+    queries = [
+        item for item in session.requests if "/collections/systems/" in item["path"]
+    ]
+    assert [item["method"] for item in queries] == ["GET", "GET"]
+    assert queries[0]["path"].endswith(f"/collections/systems/records/{system_id}")
+    assert queries[1]["path"].endswith(missing["path_suffix"])
+    assert all(
+        item["params"] == {"fields": client_data["expected_requests"]["systems_fields"]}
+        for item in queries
+    )
 
 
 @pytest.mark.asyncio

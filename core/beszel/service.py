@@ -13,6 +13,7 @@ from .client import BeszelClient
 from .models import (
     ContainerHistoryPoint,
     HistoryRange,
+    SystemDetails,
     SystemDetailView,
     SystemHistoryPoint,
     SystemHistoryView,
@@ -106,6 +107,17 @@ class QueryService:
         return sorted_systems
 
     async def get_system_detail(self, selector: str) -> SystemDetailView:
+        """Build the current status view for one system.
+
+        The cached system list only resolves the selector; the summary is read
+        live so its status is never up to ``cache_ttl`` seconds stale.
+
+        Args:
+            selector: System ID, exact name, or unique partial name.
+
+        Returns:
+            The live summary with details, latest metrics, and containers.
+        """
         logger.debug("QueryService.get_system_detail: selector=%s", selector)
         systems = await self.list_systems()
         system = self.select_system(systems, selector)
@@ -114,18 +126,22 @@ class QueryService:
             system.name,
             system.id,
         )
-        details = await self.client.get_system_details(system.id)
-        metrics = await self.client.get_latest_metrics(system.id)
-        containers = await self.client.get_latest_containers(system.id)
+        summary, details, metrics, containers = await asyncio.gather(
+            self.client.get_system(system.id),
+            self.client.get_system_details(system.id),
+            self.client.get_latest_metrics(system.id),
+            self.client.get_latest_containers(system.id),
+        )
         logger.debug(
-            "QueryService.get_system_detail: id=%s details=%s metrics=%s containers=%d",
+            "QueryService.get_system_detail: id=%s status=%s details=%s metrics=%s containers=%d",
             system.id,
+            summary.status,
             details,
             metrics,
             len(containers),
         )
         return SystemDetailView(
-            summary=system,
+            summary=summary,
             details=details,
             metrics=metrics,
             containers=containers,
@@ -136,61 +152,76 @@ class QueryService:
         selector: str,
         history_range: HistoryRange | str | None = None,
     ) -> SystemHistoryView:
+        """Build the history view for one system.
+
+        The range is validated before any Hub request, and the cached system
+        list only resolves the selector. Hardware details are optional
+        enrichment, so their failure leaves ``details`` empty.
+
+        Args:
+            selector: System ID, exact name, or unique partial name.
+            history_range: Requested range; ``None`` or blank uses the default.
+
+        Returns:
+            The live summary with system and container history points.
+
+        Raises:
+            InvalidHistoryRangeError: The range is not supported.
+        """
         logger.debug(
             "QueryService.get_system_history: selector=%s, range=%s",
             selector,
             history_range,
         )
+        if history_range is None or not history_range.strip():
+            parsed_range = self.default_history_range
+        else:
+            parsed_range = HistoryRange.parse(history_range)
         systems = await self.list_systems()
         system = self.select_system(systems, selector)
-        parsed_range = (
-            self.default_history_range
-            if history_range is None
-            else HistoryRange.parse(history_range)
-        )
         logger.debug(
             "QueryService.get_system_history: selected system %s (id=%s), parsed_range=%s",
             system.name,
             system.id,
             parsed_range.value,
         )
-        metrics = await self.client.get_history(system.id, parsed_range)
+
+        async def optional_details() -> SystemDetails | None:
+            try:
+                return await self.client.get_system_details(system.id)
+            except Exception:
+                logger.debug(
+                    "QueryService.get_system_history: optional details query skipped for id=%s",
+                    system.id,
+                )
+                return None
+
+        summary, metrics, container_metrics, system_details = await asyncio.gather(
+            self.client.get_system(system.id),
+            self.client.get_history(system.id, parsed_range),
+            self.client.get_container_history(system.id, parsed_range),
+            optional_details(),
+        )
         points = [
             SystemHistoryPoint(created=point.created, stats=point.stats)
             for point in metrics
             if point.created is not None
         ]
-        logger.debug(
-            "QueryService.get_system_history: id=%s range=%s returned %d points",
-            system.id,
-            parsed_range.value,
-            len(points),
-        )
-        container_metrics = await self.client.get_container_history(
-            system.id, parsed_range
-        )
         container_points = [
             ContainerHistoryPoint(created=point.created, stats=point.stats)
             for point in container_metrics
             if point.created is not None
         ]
         logger.debug(
-            "QueryService.get_system_history: id=%s range=%s returned %d container points",
+            "QueryService.get_system_history: id=%s status=%s range=%s returned %d points and %d container points",
             system.id,
+            summary.status,
             parsed_range.value,
+            len(points),
             len(container_points),
         )
-        system_details = None
-        try:
-            system_details = await self.client.get_system_details(system.id)
-        except Exception:
-            logger.debug(
-                "QueryService.get_system_history: optional details query skipped for id=%s",
-                system.id,
-            )
-
         return SystemHistoryView(
-            summary=system,
+            summary=summary,
             range=parsed_range,
             points=points,
             container_points=container_points,

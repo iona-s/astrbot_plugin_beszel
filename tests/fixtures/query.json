@@ -6,5 +6,8 @@
     "missing": "missing fixture system"
   },
   "detail_system_id": "pubdelta0000004",
-  "history_range_input": "12H"
+  "history_range_input": "12H",
+  "blank_history_ranges": ["", "   "],
+  "invalid_history_range": "2h",
+  "live_status": "down"
 }

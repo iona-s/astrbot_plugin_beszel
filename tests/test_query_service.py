@@ -13,6 +13,7 @@ from astrbot_plugin_beszel.core.beszel.service import QueryService
 from astrbot_plugin_beszel.core.errors import (
     AmbiguousSystemError,
     BeszelTransportError,
+    InvalidHistoryRangeError,
     SystemNotFoundError,
 )
 
@@ -36,11 +37,18 @@ class FixtureClient:
             if container_history_data
             else []
         )
+        self.live_systems = {system.id: system for system in self.systems}
         self.calls: list[tuple[str, object]] = []
 
     async def list_systems(self):
         self.calls.append(("list_systems", None))
         return self.systems
+
+    async def get_system(self, system_id: str):
+        self.calls.append(("system", system_id))
+        if system_id not in self.live_systems:
+            raise SystemNotFoundError(system_id)
+        return self.live_systems[system_id]
 
     async def get_system_details(self, system_id: str):
         self.calls.append(("details", system_id))
@@ -130,6 +138,107 @@ async def test_detail_and_history_use_selected_id_and_default_range(
         "container_history",
         (system_id, HistoryRange.ONE_HOUR),
     ) in fixture_client.calls
+
+
+@pytest.mark.asyncio
+async def test_detail_and_history_use_live_summary_after_selection(
+    fixture_client, query_data
+) -> None:
+    service = QueryService(fixture_client, default_history_range=HistoryRange.ONE_HOUR)
+    system_id = query_data["detail_system_id"]
+    cached = next(item for item in fixture_client.systems if item.id == system_id)
+    live_status = query_data["live_status"]
+    assert cached.status != live_status
+    fixture_client.live_systems[system_id] = cached.model_copy(
+        update={"status": live_status}
+    )
+
+    detail = await service.get_system_detail(cached.name)
+    history = await service.get_system_history(cached.name)
+
+    assert detail.summary.status == live_status
+    assert history.summary.status == live_status
+    assert fixture_client.calls.count(("system", system_id)) == 2
+
+
+@pytest.mark.asyncio
+async def test_detail_and_history_report_system_deleted_after_selection(
+    fixture_client, query_data
+) -> None:
+    service = QueryService(fixture_client, default_history_range=HistoryRange.ONE_HOUR)
+    system_id = query_data["detail_system_id"]
+    del fixture_client.live_systems[system_id]
+
+    with pytest.raises(SystemNotFoundError):
+        await service.get_system_detail(system_id)
+    with pytest.raises(SystemNotFoundError):
+        await service.get_system_history(system_id)
+
+
+@pytest.mark.asyncio
+async def test_blank_history_range_uses_default(fixture_client, query_data) -> None:
+    service = QueryService(fixture_client, default_history_range=HistoryRange.ONE_DAY)
+    system_id = query_data["detail_system_id"]
+
+    for blank in query_data["blank_history_ranges"]:
+        history = await service.get_system_history(system_id, blank)
+        assert history.range is HistoryRange.ONE_DAY
+    assert ("history", (system_id, HistoryRange.ONE_DAY)) in fixture_client.calls
+
+
+@pytest.mark.asyncio
+async def test_invalid_history_range_fails_before_hub_requests(
+    fixture_client, query_data
+) -> None:
+    service = QueryService(fixture_client, default_history_range=HistoryRange.ONE_HOUR)
+
+    with pytest.raises(InvalidHistoryRangeError):
+        await service.get_system_history(
+            query_data["detail_system_id"], query_data["invalid_history_range"]
+        )
+    assert fixture_client.calls == []
+
+
+@pytest.mark.asyncio
+async def test_history_keeps_view_when_optional_details_fail(
+    fixture_client, query_data
+) -> None:
+    service = QueryService(fixture_client, default_history_range=HistoryRange.ONE_HOUR)
+
+    async def failing_get_system_details(_system_id):
+        raise BeszelTransportError("fixture failure", status_code=500)
+
+    fixture_client.get_system_details = failing_get_system_details
+    history = await service.get_system_history(query_data["detail_system_id"])
+
+    assert history.details is None
+    assert len(history.points) == len(fixture_client.history)
+    assert len(history.container_points) == len(fixture_client.container_history)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("query", "client_method"),
+    [
+        ("get_system_detail", "get_system"),
+        ("get_system_detail", "get_system_details"),
+        ("get_system_detail", "get_latest_metrics"),
+        ("get_system_detail", "get_latest_containers"),
+        ("get_system_history", "get_system"),
+        ("get_system_history", "get_history"),
+    ],
+)
+async def test_required_hub_failures_propagate(
+    query: str, client_method: str, fixture_client, query_data
+) -> None:
+    service = QueryService(fixture_client, default_history_range=HistoryRange.ONE_HOUR)
+
+    async def failing_call(*_args):
+        raise BeszelTransportError("fixture failure", status_code=500)
+
+    setattr(fixture_client, client_method, failing_call)
+    with pytest.raises(BeszelTransportError):
+        await getattr(service, query)(query_data["detail_system_id"])
 
 
 @pytest.mark.asyncio

@@ -28,8 +28,8 @@ specifically for this repository. All hostnames use the reserved `.example` doma
   assemble into placeholder tokens at runtime, retry
   responses, and HTTP error payloads; successful records are sourced from the
   monitoring fixtures.
-- `query.json`: selectors, system IDs, and history-range inputs for query service
-  scenarios.
+- `query.json`: selectors, system IDs, history-range inputs, and a live status
+  override for query service scenarios.
 - `rendering.json`: stable presentation identity and timezone settings.
 
 ## Loading
