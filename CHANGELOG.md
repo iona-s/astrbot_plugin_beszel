@@ -5,6 +5,31 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，并遵循
 [语义化版本 2.0.0](https://semver.org/lang/zh-CN/)。
 
+## [v1.2.0] - 2026-10-07
+
+### 新增
+
+- Webhook 告警支持 AI 辅助诊断：通过 `send_analysis: true` 或 Shoutrrr 参数 `$send_analysis=true`
+  开启，告警后额外推送一条基于节点近 1 小时监控数据的中文诊断。
+- 新增配置项 `webhook.analysis_prompt`（自定义诊断提示词）与 `webhook.analysis_timeout_seconds`
+  （诊断超时，默认 60 秒）。
+
+### 变更
+
+- Webhook 历史图与 AI 诊断改为后台推送，不再拖慢告警原文的送达。
+- 历史图时间轴与 Beszel 网页保持一致：同一张图的所有图表共用时间范围，刻度落在整点。
+- 状态图与概览的容量单位统一为 KB / MB / GB / TB。
+- 升级 Pytakumi 至 0.1.5，提升图片渲染的稳定性。
+
+### 修复
+
+- 修复运行一段时间后查询结果变为空（找不到探针）的问题。
+- 修复个别探针数据异常时整个探针列表无法显示的问题。
+- 修复状态图中的探针在线状态可能滞后的问题。
+- 修复所有容器占用都很低时容器图表整张消失的问题。
+- 修复状态图与概览中多余的边框线。
+- 修复未配置时区时夏令时切换后显示时间偏差一小时的问题。
+
 ## [v1.1.0] - 2026-09-10
 
 ### 新增
@@ -45,6 +70,7 @@
 - 日志严格隐藏密码、PocketBase Token、Webhook Token 和探针连接地址，保留排障所需的
   会话标识、主机名与监控指标。
 
-[未发布]: https://github.com/iona-s/astrbot_plugin_beszel/compare/v1.1.0...HEAD
+[未发布]: https://github.com/iona-s/astrbot_plugin_beszel/compare/v1.2.0...HEAD
+[v1.2.0]: https://github.com/iona-s/astrbot_plugin_beszel/compare/v1.1.0...v1.2.0
 [v1.1.0]: https://github.com/iona-s/astrbot_plugin_beszel/compare/v1.0.0...v1.1.0
 [v1.0.0]: https://github.com/iona-s/astrbot_plugin_beszel/releases/tag/v1.0.0
