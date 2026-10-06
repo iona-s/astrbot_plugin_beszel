@@ -24,8 +24,10 @@ specifically for this repository. All hostnames use the reserved `.example` doma
   configuration mappings.
 - `webhook.json`: normalized notification formats, authentication headers, and
   malformed or unsupported requests.
-- `client.json`: PocketBase pagination metadata, retry responses, and HTTP error
-  payloads; successful records are sourced from the monitoring fixtures.
+- `client.json`: PocketBase pagination metadata, plain token claims that tests
+  assemble into placeholder tokens at runtime, retry
+  responses, and HTTP error payloads; successful records are sourced from the
+  monitoring fixtures.
 - `query.json`: selectors, system IDs, and history-range inputs for query service
   scenarios.
 - `rendering.json`: stable presentation identity and timezone settings.

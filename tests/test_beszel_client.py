@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import base64
 import json
 from collections import defaultdict
 from copy import deepcopy
+from types import SimpleNamespace
 from urllib.parse import urlsplit
 
 import pytest
@@ -93,6 +95,32 @@ def _client_with_session(
         client_module.aiohttp, "ClientSession", lambda **_kwargs: session
     )
     return BeszelClient(_fixture_config(config_data))
+
+
+def _fixture_token(case: dict) -> str:
+    """Build a placeholder token whose middle segment carries the fixture claims."""
+    if "token" in case:
+        return case["token"]
+    raw = (json.dumps(case["claims"]) if "claims" in case else case["payload"]).encode(
+        "utf-8"
+    )
+    payload = base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
+    return f"fixture.{payload}.fixture"
+
+
+def _token_session(client_data, tokens: list[str]) -> FixtureSession:
+    """Issue ``tokens`` to successive logins, repeating the last one."""
+    issued = list(tokens)
+
+    def response_factory(request: dict) -> _FakeResponse:
+        if request["path"].endswith("/auth-with-password"):
+            auth = client_data["responses"]["auth"]
+            token = issued.pop(0) if len(issued) > 1 else issued[0]
+            return _FakeResponse(auth["status"], {**auth["body"], "token": token})
+        page = client_data["responses"]["empty_page"]
+        return _FakeResponse(page["status"], page["body"])
+
+    return FixtureSession(response_factory)
 
 
 def _session_for_fixtures(
@@ -330,6 +358,86 @@ async def test_client_retries_once_after_unauthorized(
         == 2
     )
     assert session.closed is True
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "token_case", ["long_lived", "without_exp", "malformed_payload", "opaque"]
+)
+async def test_client_reuses_token_until_renewal_time(
+    token_case: str, client_data, config_data, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    token = client_data["tokens"][token_case]
+    login_at = float(client_data["tokens"]["expired"]["claims"]["exp"])
+    exp = token.get("claims", {}).get("exp")
+    if exp is not None:
+        renew_at = exp - client_module.TOKEN_RENEWAL_MARGIN_SECONDS
+    else:
+        renew_at = login_at + client_module.TOKEN_FALLBACK_LIFETIME_SECONDS
+    clock = [login_at]
+    monkeypatch.setattr(client_module, "time", SimpleNamespace(time=lambda: clock[0]))
+    session = _token_session(client_data, [_fixture_token(token)])
+    client = _client_with_session(config_data, session, monkeypatch)
+
+    await client.list_systems()
+    clock[0] = renew_at - 1
+    await client.list_systems()
+    clock[0] = renew_at
+    await client.list_systems()
+    await client.close()
+
+    logins = [item["path"].endswith("/auth-with-password") for item in session.requests]
+    assert logins == [True, False, False, True, False]
+
+
+@pytest.mark.asyncio
+async def test_client_logs_in_again_before_request_after_token_expiry(
+    client_data, config_data, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    tokens = client_data["tokens"]
+    expired_token = _fixture_token(tokens["expired"])
+    renewed_token = _fixture_token(tokens["long_lived"])
+    now = float(tokens["expired"]["claims"]["exp"] + 1)
+    monkeypatch.setattr(client_module, "time", SimpleNamespace(time=lambda: now))
+    session = _token_session(client_data, [expired_token, renewed_token])
+    client = _client_with_session(config_data, session, monkeypatch)
+
+    for _ in range(3):
+        await client.list_systems()
+    await client.close()
+
+    sent = [
+        (
+            "login" if item["path"].endswith("/auth-with-password") else "query",
+            item["headers"].get("Authorization"),
+        )
+        for item in session.requests
+    ]
+    assert sent == [
+        ("login", None),
+        ("query", expired_token),
+        ("login", None),
+        ("query", renewed_token),
+        ("query", renewed_token),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_client_reports_rejected_login_credentials(
+    client_data, config_data, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    rejected = client_data["errors"]["login_rejected"]
+    session = FixtureSession(
+        lambda _request: _FakeResponse(rejected["status"], rejected["body"])
+    )
+    client = _client_with_session(config_data, session, monkeypatch)
+
+    with pytest.raises(BeszelAuthError, match="登录失败"):
+        await client.list_systems()
+    await client.close()
+
+    assert len(session.requests) == 1
+    assert session.requests[0]["path"].endswith("/auth-with-password")
 
 
 @pytest.mark.asyncio

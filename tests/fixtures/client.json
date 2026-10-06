@@ -8,7 +8,15 @@
       "status": 200,
       "body": {"totalPages": 1, "items": [{"stats": []}]}
     },
-    "history": {"status": 200, "body": {"totalPages": 1, "items": []}}
+    "history": {"status": 200, "body": {"totalPages": 1, "items": []}},
+    "empty_page": {"status": 200, "body": {"totalPages": 1, "items": []}}
+  },
+  "tokens": {
+    "long_lived": {"claims": {"exp": 4102444800}},
+    "expired": {"claims": {"exp": 1767225600}},
+    "without_exp": {"claims": {"type": "fixture"}},
+    "malformed_payload": {"payload": "fixture-not-json"},
+    "opaque": {"token": "fixture-opaque-token"}
   },
   "systems_pages": [
     {"totalPages": 2, "items_source": "overview.json", "start": 0, "end": 5},
@@ -35,6 +43,10 @@
   "default_error": {"path": "/fixture-error", "status": 404, "body": {"message": "fixture not found"}},
   "errors": {
     "unauthorized": {"status": 401, "body": {"message": "fixture unauthorized"}},
+    "login_rejected": {
+      "status": 400,
+      "body": {"code": 400, "message": "Failed to authenticate.", "data": {}}
+    },
     "forbidden": {"status": 403, "body": {"message": "fixture forbidden"}},
     "server_error": {"status": 500, "body": {"message": "fixture failure"}}
   }

@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import base64
 import json
+import math
+import time
 from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import quote
@@ -29,6 +32,8 @@ from .models import (
 
 USER_AGENT = "astrbot-plugin-beszel/1.1.0"
 MAX_RESPONSE_BYTES = 8 * 1024 * 1024
+TOKEN_RENEWAL_MARGIN_SECONDS = 60
+TOKEN_FALLBACK_LIFETIME_SECONDS = 3600
 
 
 class BeszelClient:
@@ -38,6 +43,7 @@ class BeszelClient:
         self.config = config
         self._session: aiohttp.ClientSession | None = None
         self._token: str | None = None
+        self._token_expires_at = 0.0
 
     async def _ensure_session(self) -> aiohttp.ClientSession:
         if self._session is None or self._session.closed:
@@ -52,6 +58,7 @@ class BeszelClient:
             await self._session.close()
         self._session = None
         self._token = None
+        self._token_expires_at = 0.0
 
     def _url(self, path: str) -> str:
         return f"{self.config.base_url}/{path.lstrip('/')}"
@@ -187,26 +194,69 @@ class BeszelClient:
             ) from exc
 
     async def _login(self) -> None:
+        """Log in with the configured credentials and schedule token renewal.
+
+        PocketBase treats an expired token as a guest instead of answering 401,
+        so renewal is scheduled from the token's ``exp`` claim.
+
+        Raises:
+            BeszelAuthError: Credentials are missing or rejected, or the
+                response does not contain a token.
+            BeszelTransportError: The Hub could not be reached or failed.
+        """
         if not self.config.query_ready:
             raise BeszelAuthError(
                 "🔒 未配置 Beszel 登录凭据（邮箱/密码），请先在插件配置中填写"
             )
         payload = {"identity": self.config.email, "password": self.config.password}
-        data = await self._request_json(
-            "POST",
-            "/api/collections/users/auth-with-password",
-            json_body=payload,
-            authenticated=False,
-        )
+        try:
+            data = await self._request_json(
+                "POST",
+                "/api/collections/users/auth-with-password",
+                json_body=payload,
+                authenticated=False,
+            )
+        except BeszelTransportError as exc:
+            if exc.status_code == 400:
+                raise BeszelAuthError(
+                    "🔒 Beszel 登录失败，请管理员检查邮箱或密码是否正确"
+                ) from exc
+            raise
         token = data.get("token") if isinstance(data, dict) else None
         if not isinstance(token, str) or not token:
             raise BeszelAuthError("❌ Beszel 登录异常，返回数据中缺少访问令牌")
+
+        expires_at: float | None = None
+        try:
+            claims_segment = token.split(".")[1]
+            claims = json.loads(
+                base64.urlsafe_b64decode(
+                    claims_segment + "=" * (-len(claims_segment) % 4)
+                )
+            )
+            exp = claims.get("exp") if isinstance(claims, dict) else None
+            if (
+                isinstance(exp, (int, float))
+                and not isinstance(exp, bool)
+                and math.isfinite(exp)
+            ):
+                expires_at = exp - TOKEN_RENEWAL_MARGIN_SECONDS
+        except (IndexError, OverflowError, ValueError):
+            pass
+        if expires_at is None:
+            logger.debug(
+                "Beszel token expiry is unreadable, renewing it after %d seconds",
+                TOKEN_FALLBACK_LIFETIME_SECONDS,
+            )
+            expires_at = time.time() + TOKEN_FALLBACK_LIFETIME_SECONDS
         self._token = token
+        self._token_expires_at = expires_at
 
     async def _authenticated_json(
         self, path: str, *, params: dict[str, str | int]
     ) -> Any:
-        if self._token is None:
+        if self._token is None or time.time() >= self._token_expires_at:
+            logger.debug("Beszel token is missing or due for renewal, logging in")
             await self._login()
         return await self._request_json("GET", path, params=params)
 
