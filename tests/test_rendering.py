@@ -86,6 +86,14 @@ def test_templates_render_fixture_documents(
         assert overview_markup.lstrip().startswith("<!doctype html>")
         assert ".table-meter-track" in templates.stylesheet
         assert "border-radius: 9999px" in templates.stylesheet
+        # Pytakumi treats whitespace between tags as sibling nodes, so edge rows
+        # are marked explicitly instead of with structural pseudo-classes.
+        for pseudo in (":first-child", ":last-child", ":nth-", "-of-type"):
+            assert pseudo not in templates.stylesheet
+        assert overview_markup.count("overview-row-last") == 1
+        assert status_markup.count("section-row-first") == sum(
+            1 for section in status.sections if section.rows
+        )
     finally:
         renderer.close()
 

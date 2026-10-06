@@ -220,7 +220,7 @@ body {
   font-size: 13px;
   color: #0f172a;
 }
-.overview-table-tr-row:last-child {
+.overview-row-last {
   border-bottom: none;
 }
 .row-offline {
@@ -388,7 +388,7 @@ body {
   border-top: 1px solid #f1f5f9;
   font-size: 13px;
 }
-.section-row:first-child {
+.section-row-first {
   border-top: 0;
 }
 .section-label {

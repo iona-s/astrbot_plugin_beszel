@@ -145,7 +145,7 @@
       </div>
     </div>
     {% for row in rows %}
-    <div class="overview-table-tr-row {{ 'row-offline' if row.status_state != 'up' else '' }}">
+    <div class="overview-table-tr-row {{ 'row-offline' if row.status_state != 'up' else '' }}{% if loop.last %} overview-row-last{% endif %}">
       <div class="td-cell col-sys">
         <span class="status-dot status-dot-{{ row.status_state }}"></span>
         <span class="sys-name">{{ row.name }}</span>
@@ -227,7 +227,7 @@
   </div>
   <div class="section-body">
     {% for row in section.rows %}
-    <div class="section-row">
+    <div class="section-row{% if loop.first %} section-row-first{% endif %}">
       <span class="section-label">{{ row.label }}</span>
       {% if row.percent is not none %}
       <div class="disk-track">
