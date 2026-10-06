@@ -132,6 +132,8 @@
 - **`path`**：接收路径（默认 `/`）
 - **`token`**：Bearer Token 鉴权密钥（留空保存后插件将自动生成随机安全密钥）。该值同样会由 AstrBot 明文保存并显示，请按凭据管理
 - **`target_umos`**：接收告警推送的目标 UMO 列表（至少填写一个）
+- **`analysis_prompt`**：LLM 根因分析自定义 System Prompt（留空使用内置预设，填入非空内容将完全替换，最大 4096 字符）
+- **`analysis_timeout_seconds`**：单目标模型调用与诊断消息发送的超时时间（秒，默认 `60`，范围 `1 ~ 300`；不影响 HTTP 响应与 Hub 查询超时）
 
 > 将 `webhook.host` 改为 `0.0.0.0` 会让监听端口暴露给所有可达网络。请配合防火墙或容器网络隔离，并在公网入口使用 HTTPS 反向代理，只转发配置的 Webhook 路径。
 
@@ -173,10 +175,22 @@ generic://127.0.0.1:8899/?template=json&disabletls=yes&@Authorization=Bearer%20<
 generic://127.0.0.1:8899/?template=json&disabletls=yes&@Authorization=Bearer%20<TOKEN>&$source=beszel&$send_history=true
 ```
 
-> 📌 **参数说明**：
+#### ③ 进阶增强：告警附加大模型智能根因诊断（插件特殊特性）
+通过在 URL 中附加 `$source=beszel` 与 `$send_analysis=true` 参数，插件在收到该告警后，**会自动提取故障节点过去 1 小时的时序与容器特征，调用目标会话的大模型生成针对性的辅助诊断与排查建议**：
+```text
+generic://127.0.0.1:8899/?template=json&disabletls=yes&@Authorization=Bearer%20<TOKEN>&$source=beszel&$send_analysis=true
+```
+
+亦可与历史长图同时开启：
+```text
+generic://127.0.0.1:8899/?template=json&disabletls=yes&@Authorization=Bearer%20<TOKEN>&$source=beszel&$send_history=true&$send_analysis=true
+```
+
+> 📌 **参数与行为说明**：
 > - `<TOKEN>`：替换为插件配置中配置或自动生成的 `webhook.token`（需为 ASCII 字符）；
 > - `disabletls=yes`：直连内网 HTTP 端口时使用；若经由 HTTPS 反向代理请移除此项；
-> - `$source=beszel` 与 `$send_history=true`：**插件内部特殊触发参数**，用于显式声明来源并启用告警额外附带 1 小时历史监控图片。
+> - `$source=beszel`：显式声明告警来源为 Beszel；
+> - `$send_history=true` 与 `$send_analysis=true`：分别附加 1 小时历史图片与 AI 诊断，仅接受 `true`（不区分大小写），且告警需能关联到已知 Beszel 节点。
 
 ---
 

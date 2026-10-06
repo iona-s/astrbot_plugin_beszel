@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import asyncio
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -466,3 +469,90 @@ async def test_render_scale_dimensions_and_normalized_height(
             assert w == 1800
     finally:
         renderer_multi.close()
+
+
+@pytest.mark.asyncio
+async def test_cancelled_queued_render_does_not_block_wait_idle(
+    rendering_data,
+) -> None:
+    loop = asyncio.get_running_loop()
+    worker_busy = asyncio.Event()
+    release_worker = threading.Event()
+    executor = ThreadPoolExecutor(max_workers=1)
+
+    class Engine:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def render(self, *args, **kwargs) -> bytes:
+            self.calls += 1
+            return b"\x89PNG\r\n\x1a\nfake"
+
+    def occupy_worker() -> None:
+        loop.call_soon_threadsafe(worker_busy.set)
+        release_worker.wait(10)
+
+    renderer = _renderer(rendering_data)
+    engine = Engine()
+    renderer._engine = engine
+    renderer._executor = executor
+    occupying = loop.run_in_executor(executor, occupy_worker)
+    try:
+        await worker_busy.wait()
+        render_task = asyncio.create_task(
+            renderer._render_native("<div></div>", width=100, dpr=1.0)
+        )
+        # One loop turn lets the task queue its job behind the busy worker.
+        await asyncio.sleep(0)
+        idle_task = asyncio.create_task(renderer.wait_idle())
+        await asyncio.sleep(0)
+        assert not idle_task.done()
+
+        render_task.cancel()
+        await asyncio.gather(render_task, return_exceptions=True)
+        release_worker.set()
+        await occupying
+
+        await asyncio.wait_for(idle_task, timeout=5)
+        assert engine.calls == 0
+    finally:
+        release_worker.set()
+        renderer.close()
+        executor.shutdown(wait=True)
+
+
+@pytest.mark.asyncio
+async def test_cancelled_running_render_keeps_wait_idle_pending(
+    rendering_data,
+) -> None:
+    loop = asyncio.get_running_loop()
+    native_entered = asyncio.Event()
+    finish_native = threading.Event()
+
+    class Engine:
+        def render(self, *args, **kwargs) -> bytes:
+            loop.call_soon_threadsafe(native_entered.set)
+            finish_native.wait(10)
+            return b"\x89PNG\r\n\x1a\nfake"
+
+    renderer = _renderer(rendering_data)
+    renderer._engine = Engine()
+    render_task = asyncio.create_task(
+        renderer._render_native("<div></div>", width=100, dpr=1.0)
+    )
+    try:
+        await native_entered.wait()
+        render_task.cancel()
+        await asyncio.gather(render_task, return_exceptions=True)
+
+        # Cancelling the caller cannot stop the native thread, so the renderer
+        # must stay busy until the worker returns.
+        idle_task = asyncio.create_task(renderer.wait_idle())
+        await asyncio.sleep(0)
+        assert not idle_task.done()
+
+        finish_native.set()
+        await asyncio.wait_for(idle_task, timeout=5)
+    finally:
+        finish_native.set()
+        renderer.close()

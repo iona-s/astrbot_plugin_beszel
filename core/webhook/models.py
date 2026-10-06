@@ -22,3 +22,4 @@ class NormalizedNotification:
     message: str
     send_history: bool = False
     history_system_id: str | None = None
+    send_analysis: bool = False

@@ -11,12 +11,7 @@ from astrbot.api import logger
 from ..beszel.service import QueryService
 from ..config import WebhookConfig
 from .delivery import WebhookDelivery
-from .parsers import (
-    WebhookPayloadError,
-    attach_history,
-    history_requested,
-    parse_payload,
-)
+from .parsers import WebhookPayloadError, parse_payload
 
 
 class WebhookServer:
@@ -52,10 +47,15 @@ class WebhookServer:
             logger.error("Webhook listener could not bind; webhook disabled")
 
     async def stop(self) -> None:
-        if self._runner is not None:
-            await self._runner.cleanup()
-        self._runner = None
-        self._site = None
+        # The runner stops the listener and drains in-flight handlers first, so
+        # their raw-text delivery completes before optional tasks are cancelled.
+        try:
+            if self._runner is not None:
+                await self._runner.cleanup()
+        finally:
+            self._runner = None
+            self._site = None
+            await self.delivery.close()
 
     async def healthz(self, _: web.Request) -> web.Response:
         logger.debug(
@@ -112,27 +112,13 @@ class WebhookServer:
                 request_id=request_id,
             )
             logger.debug(
-                "Webhook request id=%s parsed notification: source=%s, title=%s, send_history=%s",
+                "Webhook request id=%s parsed notification: source=%s, title=%s, send_history=%s, send_analysis=%s",
                 request_id,
                 notification.source.value,
                 notification.title,
                 notification.send_history,
+                notification.send_analysis,
             )
-            if history_requested(notification):
-                try:
-                    systems = await self.service.list_systems()
-                    known_systems = {system.id: system.name for system in systems}
-                    notification = attach_history(notification, known_systems)
-                    logger.debug(
-                        "Webhook request id=%s resolved history target: system_id=%s",
-                        request_id,
-                        notification.history_system_id,
-                    )
-                except Exception as exc:
-                    logger.warning(
-                        "Webhook history system resolution failed: %s",
-                        type(exc).__name__,
-                    )
         except WebhookPayloadError as exc:
             status = exc.status
             logger.debug(

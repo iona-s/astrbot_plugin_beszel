@@ -37,6 +37,11 @@ def history_requested(notification: NormalizedNotification) -> bool:
     return notification.send_history and notification.source in _HISTORY_SOURCES
 
 
+def analysis_requested(notification: NormalizedNotification) -> bool:
+    """Return whether a notification may request Beszel LLM analysis."""
+    return notification.send_analysis and notification.source in _HISTORY_SOURCES
+
+
 def parse_payload(
     body: bytes,
     *,
@@ -103,6 +108,7 @@ def _parse_json(
         title=_truncate(title or source.value),
         message=_truncate(message),
         send_history=_strict_true(data.get("send_history")),
+        send_analysis=_strict_true(data.get("send_analysis")),
     )
 
 
@@ -133,8 +139,8 @@ def _parse_uptime_kuma(data: dict, *, request_id: str) -> NormalizedNotification
 def attach_history(
     notification: NormalizedNotification, known_systems: Mapping[str, str]
 ) -> NormalizedNotification:
-    """Attach a Beszel history request without reparsing the webhook body."""
-    if not history_requested(notification):
+    """Attach a verified Beszel system match without reparsing the webhook body."""
+    if not (history_requested(notification) or analysis_requested(notification)):
         return notification
     candidate = _system_candidate(
         notification.title,

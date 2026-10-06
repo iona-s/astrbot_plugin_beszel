@@ -78,7 +78,19 @@
         "hint": "仅支持 ASCII 字符；留空时将在启用后自动生成安全令牌",
         "default": ""
       },
-      "target_umos": {"type": "list", "description": "通知目标 UMO", "items": {"type": "string"}, "default": []}
+      "target_umos": {"type": "list", "description": "通知目标 UMO", "items": {"type": "string"}, "default": []},
+      "analysis_prompt": {
+        "type": "text",
+        "description": "自定义 AI 根因分析提示词（留空使用默认）",
+        "hint": "非空时完全替换默认 System Prompt，留空时使用插件内置提示词，最长 4096 字符",
+        "default": ""
+      },
+      "analysis_timeout_seconds": {
+        "type": "int",
+        "description": "AI 诊断超时时间（秒）",
+        "hint": "单目标模型调用与诊断消息发送的超时时间，范围 1 到 300 秒",
+        "default": 60
+      }
     }
   }
 }

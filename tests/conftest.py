@@ -88,3 +88,8 @@ def rendering_data(fixture_loader):
 @pytest.fixture()
 def container_history_data(fixture_loader):
     return fixture_loader("container_history.json")
+
+
+@pytest.fixture()
+def analysis_data(fixture_loader):
+    return fixture_loader("analysis.json")

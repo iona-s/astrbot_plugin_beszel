@@ -88,6 +88,8 @@ class WebhookConfig:
     target_umos: tuple[str, ...] = ()
     # True when ``token`` was generated here and still needs to be persisted.
     token_generated: bool = False
+    analysis_prompt: str = ""
+    analysis_timeout_seconds: int = 60
 
 
 @dataclass(frozen=True, slots=True)
@@ -246,6 +248,36 @@ class PluginConfig:
             )
             enabled = False
 
+        analysis_prompt_raw = webhook_raw.get("analysis_prompt")
+        analysis_prompt = ""
+        if analysis_prompt_raw is not None:
+            if not isinstance(analysis_prompt_raw, str):
+                logger.warning(
+                    "Invalid webhook.analysis_prompt (must be string); using default prompt"
+                )
+            elif len(analysis_prompt_raw.strip()) > 4096:
+                logger.warning(
+                    "Invalid webhook.analysis_prompt (length exceeds 4096 characters); using default prompt"
+                )
+            else:
+                analysis_prompt = analysis_prompt_raw.strip()
+
+        analysis_timeout_raw = webhook_raw.get("analysis_timeout_seconds", 60)
+        if analysis_timeout_raw is None:
+            analysis_timeout_seconds = 60
+        elif (
+            isinstance(analysis_timeout_raw, bool)
+            or not isinstance(analysis_timeout_raw, int)
+            or not 1 <= analysis_timeout_raw <= 300
+        ):
+            logger.warning(
+                "Invalid webhook.analysis_timeout_seconds (%s); using default 60s",
+                analysis_timeout_raw,
+            )
+            analysis_timeout_seconds = 60
+        else:
+            analysis_timeout_seconds = int(analysis_timeout_raw)
+
         return cls(
             beszel=BeszelConfig(
                 base_url=base_url,
@@ -278,5 +310,7 @@ class PluginConfig:
                 token=token,
                 target_umos=target_umos,
                 token_generated=token_generated,
+                analysis_prompt=analysis_prompt,
+                analysis_timeout_seconds=analysis_timeout_seconds,
             ),
         )

@@ -40,6 +40,26 @@
       "send_history": true
     }
   },
+  "beszel_analysis": {
+    "content_type": "application/json",
+    "headers": {},
+    "body": {
+      "source": "beszel",
+      "title": "Atlas Gateway threshold exceeded",
+      "message": "Open /system/pubatlas0000001 for details",
+      "send_analysis": true
+    }
+  },
+  "generic_both": {
+    "content_type": "application/json",
+    "headers": {"X-Webhook-Source": "generic"},
+    "body": {
+      "title": "Atlas alert",
+      "message": "Open /system/pubatlas0000001 for details",
+      "send_history": "true",
+      "send_analysis": true
+    }
+  },
   "uptime_kuma": {
     "content_type": "application/json",
     "headers": {},

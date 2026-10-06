@@ -1,0 +1,102 @@
+{
+  "reference_time": "2026-09-14T01:00:00Z",
+  "system_summary": {
+    "id": "pubatlas0000001",
+    "name": "Atlas Gateway",
+    "status": "up"
+  },
+  "system_details": {
+    "hostname": "atlas-gw-01",
+    "os": "Linux",
+    "kernel": "6.1.0",
+    "arch": "x86_64",
+    "cores": 4,
+    "threads": 8,
+    "memory": 17179869184
+  },
+  "detail_metrics": {
+    "stats": {
+      "cpu": 92.5,
+      "mp": 85.0,
+      "mu": 13.6,
+      "m": 16.0
+    }
+  },
+  "history_points": [
+    {
+      "created": "2026-09-13T23:45:00Z",
+      "stats": {"cpu": 99.9, "mp": 99.9}
+    },
+    {
+      "created": "2026-09-14T00:10:00Z",
+      "stats": {"cpu": 10.0, "mp": 20.0}
+    },
+    {
+      "created": "2026-09-14T00:10:00Z",
+      "stats": {"cpu": 12.0, "mp": 22.0}
+    },
+    {
+      "created": "2026-09-14T00:20:00Z",
+      "stats": {"cpu": 15.0, "mp": 25.0}
+    },
+    {
+      "created": "2026-09-14T00:30:00Z",
+      "stats": {"cpu": 0.0, "mp": 25.0}
+    },
+    {
+      "created": "2026-09-14T00:40:00Z",
+      "stats": {"cpu": 13.0, "mp": 28.0}
+    },
+    {
+      "created": "2026-09-14T00:50:00Z",
+      "stats": {"cpu": 90.0, "mp": 80.0}
+    },
+    {
+      "created": "2026-09-14T00:55:00Z",
+      "stats": {"cpu": 95.0, "mp": 85.0}
+    },
+    {
+      "created": "2026-09-14T01:10:00Z",
+      "stats": {"cpu": 99.9, "mp": 99.9}
+    }
+  ],
+  "container_history_points": [
+    {
+      "created": "2026-09-14T00:10:00Z",
+      "stats": [
+        {"n": "c_high_cpu", "c": 10.0, "m": 100.0},
+        {"n": "c_high_mem", "c": 2.0, "m": 1000.0},
+        {"n": "c_zero", "c": 0.0, "m": 0.0},
+        {"n": "c_tied_b", "c": 5.0, "m": 200.0},
+        {"n": "c_tied_a", "c": 5.0, "m": 200.0}
+      ]
+    },
+    {
+      "created": "2026-09-14T00:20:00Z",
+      "stats": [
+        {"n": "c_high_cpu", "c": 12.0, "m": 110.0},
+        {"n": "c_high_mem", "c": 3.0, "m": 1200.0},
+        {"n": "c_tied_b", "c": 6.0, "m": 210.0},
+        {"n": "c_tied_a", "c": 6.0, "m": 210.0}
+      ]
+    },
+    {
+      "created": "2026-09-14T00:30:00Z",
+      "stats": [
+        {"n": "c_high_cpu", "c": 15.0, "m": 120.0},
+        {"n": "c_high_mem", "c": 4.0, "m": 1500.0},
+        {"n": "c_tied_b", "c": 7.0, "m": 220.0},
+        {"n": "c_tied_a", "c": 7.0, "m": 220.0}
+      ]
+    },
+    {
+      "created": "2026-09-14T00:50:00Z",
+      "stats": [
+        {"n": "c_high_cpu", "c": 95.0, "m": 200.0},
+        {"n": "c_high_mem", "c": 10.0, "m": 4000.0},
+        {"n": "c_tied_b", "c": 20.0, "m": 500.0},
+        {"n": "c_tied_a", "c": 20.0, "m": 500.0}
+      ]
+    }
+  ]
+}

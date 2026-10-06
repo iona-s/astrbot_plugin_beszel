@@ -17,6 +17,10 @@ def test_minimal_config_uses_documented_defaults(config_data) -> None:
     assert config.render.page_size == expected["page_size"]
     assert config.render.render_scale == expected["render_scale"]
     assert config.webhook.enabled is expected["webhook_enabled"]
+    assert config.webhook.analysis_prompt == expected["analysis_prompt"]
+    assert (
+        config.webhook.analysis_timeout_seconds == expected["analysis_timeout_seconds"]
+    )
 
 
 def test_complete_config_normalizes_values(config_data) -> None:
@@ -36,6 +40,10 @@ def test_complete_config_normalizes_values(config_data) -> None:
     assert config.webhook.enabled is expected["webhook_enabled"]
     assert config.webhook.token == expected["webhook_token"]
     assert config.webhook.target_umos == tuple(expected["webhook_target_umos"])
+    assert config.webhook.analysis_prompt == expected["analysis_prompt"]
+    assert (
+        config.webhook.analysis_timeout_seconds == expected["analysis_timeout_seconds"]
+    )
 
 
 def test_astrbot_timezone_is_used_when_display_timezone_is_empty(config_data) -> None:
@@ -150,3 +158,32 @@ def test_render_scale_fixtures_support_valid_and_fallback_cases(
     case = config_data["render_scale_cases"][case_name]
     config = PluginConfig.from_mapping(case["raw"])
     assert config.render.render_scale == case["expected"]
+
+
+@pytest.mark.parametrize(
+    "case_name",
+    [
+        "prompt_strip",
+        "prompt_empty",
+        "prompt_none",
+        "prompt_invalid_type",
+        "timeout_valid",
+        "timeout_none",
+        "timeout_low",
+        "timeout_max",
+        "timeout_high",
+        "timeout_bool",
+        "timeout_float",
+        "timeout_str",
+    ],
+)
+def test_analysis_config_cases(config_data, case_name: str) -> None:
+    case = config_data["analysis_cases"][case_name]
+    config = PluginConfig.from_mapping(case["raw"])
+    assert config.webhook.analysis_prompt == case["expected_prompt"]
+    assert config.webhook.analysis_timeout_seconds == case["expected_timeout"]
+
+
+def test_analysis_prompt_oversize_falls_back_to_empty() -> None:
+    config = PluginConfig.from_mapping({"webhook": {"analysis_prompt": "a" * 4097}})
+    assert config.webhook.analysis_prompt == ""

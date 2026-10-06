@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from concurrent.futures import ThreadPoolExecutor
 from datetime import tzinfo
 from pathlib import Path
 
@@ -45,6 +46,10 @@ class BeszelRenderer:
         self._font_path = font_path
         self._render_scale = render_scale
         self._engine: PytakumiEngine | None = None
+        self._executor: ThreadPoolExecutor | None = None
+        self._active_renders: int = 0
+        self._idle_event: asyncio.Event = asyncio.Event()
+        self._idle_event.set()
 
     def _scaled_dimensions(self, base_width: int) -> tuple[int, float]:
         target_width = round(base_width * self._render_scale / 100)
@@ -98,14 +103,7 @@ class BeszelRenderer:
                 summary_counts=summary_counts,
             )
             markup = self.templates.render_overview(document)
-            outputs.append(
-                await asyncio.to_thread(
-                    self.engine.render,
-                    markup,
-                    width=width,
-                    device_pixel_ratio=dpr,
-                )
-            )
+            outputs.append(await self._render_native(markup, width=width, dpr=dpr))
         return outputs
 
     async def render_status(self, view: SystemDetailView) -> bytes:
@@ -113,12 +111,7 @@ class BeszelRenderer:
         document = self.presentation.build_status(view)
         markup = self.templates.render_status(document)
         width, dpr = self._scaled_dimensions(STATUS_RENDER_WIDTH)
-        return await asyncio.to_thread(
-            self.engine.render,
-            markup,
-            width=width,
-            device_pixel_ratio=dpr,
-        )
+        return await self._render_native(markup, width=width, dpr=dpr)
 
     async def render_history(self, view: SystemHistoryView) -> bytes:
         await self.initialize()
@@ -128,13 +121,50 @@ class BeszelRenderer:
             timezone=self.presentation.display_timezone,
         )
         width, dpr = self._scaled_dimensions(RENDER_WIDTH)
-        return await asyncio.to_thread(
-            self.engine.render,
-            markup,
-            width=width,
-            device_pixel_ratio=dpr,
+        return await self._render_native(markup, width=width, dpr=dpr)
+
+    async def _render_native(self, markup: str, *, width: int, dpr: float) -> bytes:
+        """Run one native render in the renderer-owned thread pool.
+
+        Completion is tracked on the worker future rather than on the awaiting
+        coroutine: cancelling a caller cannot stop a render that already started,
+        so ``wait_idle`` must keep waiting until the worker really finishes.
+
+        Args:
+            markup: Rendered template markup.
+            width: Output width in CSS pixels.
+            dpr: Device pixel ratio forwarded to the engine.
+
+        Returns:
+            Encoded PNG bytes.
+        """
+        engine = self.engine
+        if self._executor is None:
+            self._executor = ThreadPoolExecutor(thread_name_prefix="beszel-render")
+        loop = asyncio.get_running_loop()
+        future = self._executor.submit(
+            engine.render, markup, width=width, device_pixel_ratio=dpr
         )
+        self._active_renders += 1
+        self._idle_event.clear()
+        future.add_done_callback(
+            lambda _future: loop.call_soon_threadsafe(self._on_render_finished)
+        )
+        return await asyncio.wrap_future(future, loop=loop)
+
+    def _on_render_finished(self) -> None:
+        self._active_renders -= 1
+        if self._active_renders <= 0:
+            self._active_renders = 0
+            self._idle_event.set()
+
+    async def wait_idle(self) -> None:
+        """Wait for any in-flight native thread rendering operations to complete."""
+        await self._idle_event.wait()
 
     def close(self) -> None:
-        """Drop the native engine reference so its resources can be reclaimed."""
+        """Drop the native engine and release the render pool without blocking."""
         self._engine = None
+        if self._executor is not None:
+            self._executor.shutdown(wait=False)
+            self._executor = None

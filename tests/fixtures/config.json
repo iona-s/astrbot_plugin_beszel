@@ -27,7 +27,9 @@
       "port": 18089,
       "path": "notify",
       "token": "fixture-webhook-token",
-      "target_umos": ["aiocqhttp:group:fixture", ""]
+      "target_umos": ["aiocqhttp:group:fixture", ""],
+      "analysis_prompt": "Custom analysis prompt",
+      "analysis_timeout_seconds": 30
     }
   },
   "inherited_timezone": {
@@ -83,6 +85,68 @@
       "expected": 100
     }
   },
+  "analysis_cases": {
+    "prompt_strip": {
+      "raw": {"webhook": {"analysis_prompt": "  custom prompt  "}},
+      "expected_prompt": "custom prompt",
+      "expected_timeout": 60
+    },
+    "prompt_empty": {
+      "raw": {"webhook": {"analysis_prompt": "   "}},
+      "expected_prompt": "",
+      "expected_timeout": 60
+    },
+    "prompt_none": {
+      "raw": {"webhook": {"analysis_prompt": null}},
+      "expected_prompt": "",
+      "expected_timeout": 60
+    },
+    "prompt_invalid_type": {
+      "raw": {"webhook": {"analysis_prompt": 12345}},
+      "expected_prompt": "",
+      "expected_timeout": 60
+    },
+    "timeout_valid": {
+      "raw": {"webhook": {"analysis_timeout_seconds": 45}},
+      "expected_prompt": "",
+      "expected_timeout": 45
+    },
+    "timeout_none": {
+      "raw": {"webhook": {"analysis_timeout_seconds": null}},
+      "expected_prompt": "",
+      "expected_timeout": 60
+    },
+    "timeout_low": {
+      "raw": {"webhook": {"analysis_timeout_seconds": 0}},
+      "expected_prompt": "",
+      "expected_timeout": 60
+    },
+    "timeout_max": {
+      "raw": {"webhook": {"analysis_timeout_seconds": 300}},
+      "expected_prompt": "",
+      "expected_timeout": 300
+    },
+    "timeout_high": {
+      "raw": {"webhook": {"analysis_timeout_seconds": 301}},
+      "expected_prompt": "",
+      "expected_timeout": 60
+    },
+    "timeout_bool": {
+      "raw": {"webhook": {"analysis_timeout_seconds": true}},
+      "expected_prompt": "",
+      "expected_timeout": 60
+    },
+    "timeout_float": {
+      "raw": {"webhook": {"analysis_timeout_seconds": 25.5}},
+      "expected_prompt": "",
+      "expected_timeout": 60
+    },
+    "timeout_str": {
+      "raw": {"webhook": {"analysis_timeout_seconds": "30"}},
+      "expected_prompt": "",
+      "expected_timeout": 60
+    }
+  },
   "astrbot_timezone": "Australia/Sydney",
   "expected": {
     "minimal": {
@@ -93,7 +157,9 @@
       "page_size": 20,
       "render_scale": 100,
       "webhook_enabled": false,
-      "cache_ttl_seconds": 60
+      "cache_ttl_seconds": 60,
+      "analysis_prompt": "",
+      "analysis_timeout_seconds": 60
     },
     "complete": {
       "base_url": "https://hub.fixture.example",
@@ -106,7 +172,9 @@
       "webhook_enabled": true,
       "webhook_token": "fixture-webhook-token",
       "webhook_target_umos": ["aiocqhttp:group:fixture"],
-      "cache_ttl_seconds": 120
+      "cache_ttl_seconds": 120,
+      "analysis_prompt": "Custom analysis prompt",
+      "analysis_timeout_seconds": 30
     },
     "inherited_timezone": "Australia/Sydney"
   },
