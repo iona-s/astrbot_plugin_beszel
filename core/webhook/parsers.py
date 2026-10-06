@@ -159,14 +159,16 @@ def _parse_uptime_kuma(data: dict, *, request_id: str) -> NormalizedNotification
 def attach_history(
     notification: NormalizedNotification, known_systems: Mapping[str, str]
 ) -> NormalizedNotification:
-    """Attach a verified Beszel system match without reparsing the webhook body."""
+    """Attach the system named by the first known ``/system/<id>`` link."""
     if not (history_requested(notification) or analysis_requested(notification)):
         return notification
-    candidate = _system_candidate(
-        notification.title,
-        notification.message,
-        known_systems,
-        allow_title=notification.source is NotificationSource.BESZEL,
+    candidate = next(
+        (
+            match.group(1)
+            for match in _SYSTEM_LINK_RE.finditer(notification.message)
+            if match.group(1) in known_systems
+        ),
+        None,
     )
     if candidate is None:
         return notification
@@ -175,54 +177,6 @@ def attach_history(
         source=NotificationSource.BESZEL,
         history_system_id=candidate,
     )
-
-
-def _system_candidate(
-    title: str,
-    message: str,
-    known_systems: Mapping[str, str],
-    *,
-    allow_title: bool,
-) -> str | None:
-    """Resolve the Beszel system an alert refers to.
-
-    A ``/system/<id>`` link is Beszel's authoritative identifier. When links
-    exist but none is known (the account cannot see the system or the list is
-    stale), the title is not consulted, because it could bind another system
-    with a similar name.
-
-    Args:
-        title: Notification title.
-        message: Notification message that may contain system links.
-        known_systems: Visible system names keyed by system ID.
-        allow_title: Whether Beszel title formats may identify the system.
-
-    Returns:
-        The matched system ID, or ``None`` when no unambiguous match exists.
-    """
-    link_ids = [match.group(1) for match in _SYSTEM_LINK_RE.finditer(message)]
-    if link_ids or not allow_title:
-        return next((item for item in link_ids if item in known_systems), None)
-    # Beszel titles are "<name> <metric> above|below threshold" and
-    # "Connection to <name> is <up|down> <emoji>"; the trailing space stops a
-    # name from matching a longer name that shares its prefix.
-    title_folded = title.casefold()
-    candidates: dict[str, int] = {}
-    for system_id, name in known_systems.items():
-        name_folded = name.casefold()
-        threshold_prefix = f"{name_folded} "
-        threshold_title = (
-            title_folded.startswith(threshold_prefix)
-            and "threshold" in title_folded[len(threshold_prefix) :]
-        )
-        connection_title = title_folded.startswith(f"connection to {name_folded} is ")
-        if threshold_title or connection_title:
-            candidates[system_id] = len(name_folded)
-    if not candidates:
-        return None
-    longest = max(candidates.values())
-    best = [system_id for system_id, size in candidates.items() if size == longest]
-    return best[0] if len(best) == 1 else None
 
 
 def _source(value: object) -> NotificationSource:

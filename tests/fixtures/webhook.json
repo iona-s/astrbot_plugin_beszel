@@ -86,55 +86,15 @@
   },
   "system_matching": [
     {
-      "case": "threshold title prefers the longer name sharing a prefix",
+      "case": "a matching title without a link does not bind",
       "source": "beszel",
-      "systems": {"fixture-db": "db", "fixture-db-replica": "db-replica"},
-      "title": "db-replica CPU above threshold",
-      "message": "Fixture alert without a link",
-      "expected": "fixture-db-replica"
-    },
-    {
-      "case": "threshold title binds the shorter name only on a word boundary",
-      "source": "beszel",
-      "systems": {"fixture-db": "db", "fixture-db-replica": "db-replica"},
-      "title": "db Memory above threshold",
-      "message": "Fixture alert without a link",
-      "expected": "fixture-db"
-    },
-    {
-      "case": "names separated by a space pick the longest match",
-      "source": "beszel",
-      "systems": {"fixture-atlas": "atlas", "fixture-atlas-gateway": "Atlas Gateway"},
-      "title": "Atlas Gateway memory above threshold",
-      "message": "Fixture alert without a link",
-      "expected": "fixture-atlas-gateway"
-    },
-    {
-      "case": "equally long matching names are ambiguous",
-      "source": "beszel",
-      "systems": {"fixture-atlas-upper": "Atlas", "fixture-atlas-lower": "atlas"},
+      "systems": {"fixture-atlas": "Atlas"},
       "title": "Atlas CPU above threshold",
       "message": "Fixture alert without a link",
       "expected": null
     },
     {
-      "case": "connection title with a status emoji",
-      "source": "beszel",
-      "systems": {"fixture-atlas": "Atlas"},
-      "title": "Connection to Atlas is down 🔴",
-      "message": "Fixture alert without a link",
-      "expected": "fixture-atlas"
-    },
-    {
-      "case": "connection title does not bind a shorter shared prefix",
-      "source": "beszel",
-      "systems": {"fixture-db": "db", "fixture-db-replica": "db-replica"},
-      "title": "Connection to db-replica is up ✅",
-      "message": "Fixture alert without a link",
-      "expected": "fixture-db-replica"
-    },
-    {
-      "case": "unknown link blocks the title fallback",
+      "case": "an unknown link does not bind",
       "source": "beszel",
       "systems": {"fixture-atlas": "Atlas"},
       "title": "Atlas CPU above threshold",
@@ -148,14 +108,6 @@
       "title": "Fixture alert",
       "message": "See /system/fixture-hidden and /system/fixture-atlas",
       "expected": "fixture-atlas"
-    },
-    {
-      "case": "generic source ignores a matching title",
-      "source": "generic",
-      "systems": {"fixture-atlas": "Atlas"},
-      "title": "Atlas CPU above threshold",
-      "message": "Fixture alert without a link",
-      "expected": null
     },
     {
       "case": "shoutrrr source binds a known link",

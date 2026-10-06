@@ -145,7 +145,7 @@ def test_invalid_webhook_payloads_return_explicit_status(
     assert exc_info.value.status == expected_status
 
 
-def test_attach_history_binds_beszel_systems_by_link_or_title(webhook_data) -> None:
+def test_attach_history_binds_systems_by_known_link(webhook_data) -> None:
     for case in webhook_data["system_matching"]:
         notification = NormalizedNotification(
             request_id=webhook_data["request_ids"]["history"],
