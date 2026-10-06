@@ -78,7 +78,7 @@ class SystemSummary(BaseModel):
     updated: datetime | None = None
     info: dict[str, Any] = Field(default_factory=dict)
     host: str | None = None
-    port: int | None = None
+    port: str | None = None
 
     @model_validator(mode="before")
     @classmethod
@@ -87,6 +87,16 @@ class SystemSummary(BaseModel):
             raise ValueError("systems record requires id and name")
         if "status" not in value or value.get("status") is None:
             raise ValueError("systems record requires status")
+        return value
+
+    @field_validator("port", mode="before")
+    @classmethod
+    def normalize_port(cls, value: Any) -> Any:
+        """Normalize Beszel's optional text ``port`` field, which may be blank."""
+        if isinstance(value, int) and not isinstance(value, bool):
+            return str(value)
+        if isinstance(value, str):
+            return value.strip() or None
         return value
 
 

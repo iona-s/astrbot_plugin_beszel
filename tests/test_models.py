@@ -47,6 +47,14 @@ def test_container_stats_uses_short_protocol_aliases(models_data) -> None:
     assert container.memory is not None
 
 
+@pytest.mark.parametrize("case", ["empty", "blank", "text", "integer", "missing"])
+def test_system_summary_normalizes_optional_text_port(models_data, case: str) -> None:
+    port_data = models_data["system_port"]
+    item = port_data["cases"][case]
+    summary = SystemSummary.model_validate({**port_data["record"], **item["fields"]})
+    assert summary.port == item["expected"]
+
+
 def test_metrics_require_stats(models_data) -> None:
     with pytest.raises(ValidationError):
         SystemMetrics.model_validate(models_data["metrics_without_stats"])

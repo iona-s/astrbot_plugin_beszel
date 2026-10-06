@@ -1,5 +1,15 @@
 {
   "metrics_without_stats": {"cpu": 50},
+  "system_port": {
+    "record": {"id": "fixturesys00001", "name": "fixture-alpha", "status": "up", "host": "alpha.fixture.example"},
+    "cases": {
+      "empty": {"fields": {"port": ""}, "expected": null},
+      "blank": {"fields": {"port": "  "}, "expected": null},
+      "text": {"fields": {"port": " 45876 "}, "expected": "45876"},
+      "integer": {"fields": {"port": 45876}, "expected": "45876"},
+      "missing": {"fields": {}, "expected": null}
+    }
+  },
   "container_extra_fields": {
     "n": "fixture-container",
     "c": 4.2,

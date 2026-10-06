@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import json
+import logging
 from collections import defaultdict
 from copy import deepcopy
 from types import SimpleNamespace
@@ -14,6 +15,7 @@ from astrbot_plugin_beszel.core.beszel.models import HistoryRange
 from astrbot_plugin_beszel.core.config import BeszelConfig
 from astrbot_plugin_beszel.core.errors import (
     BeszelAuthError,
+    BeszelProtocolError,
     BeszelTransportError,
 )
 
@@ -119,6 +121,19 @@ def _token_session(client_data, tokens: list[str]) -> FixtureSession:
             return _FakeResponse(auth["status"], {**auth["body"], "token": token})
         page = client_data["responses"]["empty_page"]
         return _FakeResponse(page["status"], page["body"])
+
+    return FixtureSession(response_factory)
+
+
+def _records_session(client_data, items: list) -> FixtureSession:
+    """Answer every collection query with a single page containing ``items``."""
+
+    def response_factory(request: dict) -> _FakeResponse:
+        if request["path"].endswith("/auth-with-password"):
+            auth = client_data["responses"]["auth"]
+            return _FakeResponse(auth["status"], auth["body"])
+        page = client_data["responses"]["empty_page"]
+        return _FakeResponse(page["status"], {**page["body"], "items": items})
 
     return FixtureSession(response_factory)
 
@@ -326,6 +341,53 @@ async def test_get_container_history_empty_and_invalid_records(
     # Only the 1 valid record should be kept
     assert len(results) == 1
     assert results[0].stats[0].name == "app"
+
+
+@pytest.mark.asyncio
+async def test_list_systems_skips_malformed_records_without_logging_address(
+    client_data, config_data, caplog, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(logging.getLogger("astrbot"), "propagate", True)
+    caplog.set_level(logging.DEBUG, logger="astrbot")
+    cases = client_data["malformed_records"]
+    session = _records_session(client_data, cases["systems_partial"])
+    client = _client_with_session(config_data, session, monkeypatch)
+
+    systems = await client.list_systems()
+    await client.close()
+
+    assert [system.id for system in systems] == cases["systems_partial_valid_ids"]
+    assert systems[0].port is None
+    skipped = cases["systems_partial_skipped"]
+    assert f"id={skipped['id']}" in caplog.text
+    assert skipped["host"] not in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_list_systems_rejects_page_without_valid_records(
+    client_data, config_data, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    items = client_data["malformed_records"]["systems_all_invalid"]
+    session = _records_session(client_data, items)
+    client = _client_with_session(config_data, session, monkeypatch)
+
+    with pytest.raises(BeszelProtocolError):
+        await client.list_systems()
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_latest_containers_ignore_non_list_stats(
+    client_data, config_data, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    items = client_data["malformed_records"]["containers_non_list_stats"]
+    session = _records_session(client_data, items)
+    client = _client_with_session(config_data, session, monkeypatch)
+
+    containers = await client.get_latest_containers(client_data["system_id"])
+    await client.close()
+
+    assert containers == []
 
 
 @pytest.mark.asyncio

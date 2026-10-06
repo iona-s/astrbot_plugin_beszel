@@ -1265,7 +1265,7 @@ class PresentationBuilder:
         return gb_iec(used) if used is not None else ""
 
     @staticmethod
-    def _address(host: str, port: int | None) -> str:
+    def _address(host: str, port: str | None) -> str:
         return f"{host}:{port}" if port is not None else host
 
     @staticmethod

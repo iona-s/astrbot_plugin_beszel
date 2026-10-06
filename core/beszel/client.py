@@ -305,10 +305,19 @@ class BeszelClient:
                 "sort": "name",
             },
         )
-        try:
-            return [SystemSummary.model_validate(record) for record in records]
-        except Exception as exc:
-            raise BeszelProtocolError("⚠️ Beszel 探针列表数据解析失败") from exc
+        systems: list[SystemSummary] = []
+        for record in records:
+            try:
+                systems.append(SystemSummary.model_validate(record))
+            except ValueError as exc:
+                logger.debug(
+                    "Skipping invalid systems record id=%s: %s",
+                    record.get("id"),
+                    type(exc).__name__,
+                )
+        if records and not systems:
+            raise BeszelProtocolError("⚠️ Beszel 探针列表数据解析失败")
+        return systems
 
     async def get_system_details(self, system_id: str) -> SystemDetails | None:
         try:
@@ -361,7 +370,11 @@ class BeszelClient:
 
         raw_stats = records[0].get("stats")
         if not isinstance(raw_stats, list):
-            raise BeszelProtocolError("⚠️ Beszel 容器监控数据解析失败")
+            logger.debug(
+                "Ignoring latest container_stats record with %s stats",
+                type(raw_stats).__name__,
+            )
+            return []
 
         containers: list[ContainerStats] = []
         for index, item in enumerate(raw_stats):

@@ -42,6 +42,23 @@
       "target_umos": ["aiocqhttp:group:fixture"]
     }
   },
+  "blank_webhook_token": {
+    "webhook": {
+      "enabled": true,
+      "token": "   ",
+      "target_umos": ["aiocqhttp:group:fixture"]
+    }
+  },
+  "padded_webhook_token": {
+    "webhook": {
+      "enabled": true,
+      "token": "  fixture-webhook-token\n",
+      "target_umos": ["aiocqhttp:group:fixture"]
+    }
+  },
+  "verify_tls_null": {
+    "beszel": {"verify_tls": null}
+  },
   "non_ascii_webhook_token": {
     "webhook": {
       "enabled": true,
@@ -176,7 +193,8 @@
       "analysis_prompt": "Custom analysis prompt",
       "analysis_timeout_seconds": 30
     },
-    "inherited_timezone": "Australia/Sydney"
+    "inherited_timezone": "Australia/Sydney",
+    "padded_webhook_token": "fixture-webhook-token"
   },
   "invalid": [
     {

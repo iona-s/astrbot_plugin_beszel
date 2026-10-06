@@ -49,5 +49,19 @@
     },
     "forbidden": {"status": 403, "body": {"message": "fixture forbidden"}},
     "server_error": {"status": 500, "body": {"message": "fixture failure"}}
+  },
+  "malformed_records": {
+    "systems_partial": [
+      {"id": "fixturesys00001", "name": "fixture-alpha", "status": "up", "host": "alpha.fixture.example", "port": ""},
+      {"id": "fixturesys00002", "status": "up", "host": "beta.fixture.example", "port": "45876"},
+      {"id": "fixturesys00003", "name": "fixture-gamma", "status": "down", "host": "gamma.fixture.example", "port": "45876"}
+    ],
+    "systems_partial_valid_ids": ["fixturesys00001", "fixturesys00003"],
+    "systems_partial_skipped": {"id": "fixturesys00002", "host": "beta.fixture.example"},
+    "systems_all_invalid": [
+      {"id": "fixturesys00004", "status": "up"},
+      {"id": "fixturesys00005", "name": "fixture-epsilon", "status": null}
+    ],
+    "containers_non_list_stats": [{"stats": {"n": "fixture-container", "c": 1.5}}]
   }
 }

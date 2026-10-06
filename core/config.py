@@ -143,6 +143,8 @@ class PluginConfig:
             raise ConfigurationError(
                 "beszel.cache_ttl_seconds 缓存过期时间必须在 0 到 300 秒之间"
             )
+        verify_tls_raw = beszel_raw.get("verify_tls")
+        verify_tls = verify_tls_raw is None or bool(verify_tls_raw)
 
         access_raw = _mapping(data.get("access"))
         mode = _opt_str(access_raw.get("mode"), "admin_only") or "admin_only"
@@ -231,7 +233,7 @@ class PluginConfig:
                 enabled = False
             path = "/"
         target_umos = _string_items(webhook_raw.get("target_umos", []))
-        token = _opt_text(webhook_raw.get("token"))
+        token = _opt_str(webhook_raw.get("token"))
         token_generated = False
         if token and not token.isascii():
             if enabled:
@@ -284,7 +286,7 @@ class PluginConfig:
                 email=_opt_str(beszel_raw.get("email")),
                 password=_opt_text(beszel_raw.get("password")),
                 timeout_seconds=timeout,
-                verify_tls=bool(beszel_raw.get("verify_tls", True)),
+                verify_tls=verify_tls,
                 history_default_range=default_range,
                 cache_ttl_seconds=cache_ttl,
             ),

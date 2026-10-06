@@ -79,14 +79,31 @@ def test_invalid_config_cases_raise_configuration_error(config_data, case: str) 
         PluginConfig.from_mapping(raw)
 
 
+@pytest.mark.parametrize("case", ["generated_webhook_token", "blank_webhook_token"])
 def test_enabled_webhook_generates_token_without_exposing_fixture_credentials(
-    config_data,
+    config_data, case: str
 ) -> None:
-    config = PluginConfig.from_mapping(config_data["generated_webhook_token"])
+    config = PluginConfig.from_mapping(config_data[case])
 
     assert config.webhook.enabled is True
     assert config.webhook.token_generated is True
     assert len(config.webhook.token) >= 32
+
+
+def test_webhook_token_surrounding_whitespace_is_stripped(config_data) -> None:
+    config = PluginConfig.from_mapping(config_data["padded_webhook_token"])
+
+    assert config.webhook.enabled is True
+    assert config.webhook.token == config_data["expected"]["padded_webhook_token"]
+    assert config.webhook.token_generated is False
+
+
+def test_null_verify_tls_keeps_certificate_verification(config_data) -> None:
+    assert PluginConfig.from_mapping({}).beszel.verify_tls is True
+    config = PluginConfig.from_mapping(config_data["verify_tls_null"])
+    assert config.beszel.verify_tls is True
+    complete = PluginConfig.from_mapping(config_data["complete"])
+    assert complete.beszel.verify_tls is False
 
 
 def test_cache_ttl_fixtures_support_disabled_and_fallback(config_data) -> None:
