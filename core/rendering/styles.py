@@ -44,7 +44,7 @@ COLOR_PAUSED: Color = (148, 163, 184)  # Offline / Paused : Slate-400
 
 def threshold_color(value: float | None, status: str) -> Color:
     """Return Beszel threshold status color based on usage percent."""
-    if status.casefold() in {"down", "offline", "paused", "maintenance"}:
+    if status.casefold() in {"down", "paused"}:
         return COLOR_PAUSED
     if value is None:
         return COLOR_GOOD

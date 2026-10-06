@@ -19,9 +19,9 @@ def status_state(status: str | None) -> StatusState:
     offline, and empty or unrecognized values are unknown.
     """
     state = (status or "").casefold()
-    if state in {"up", "online"}:
+    if state == "up":
         return "up"
-    if state in {"down", "offline"}:
+    if state == "down":
         return "down"
     return "unknown"
 

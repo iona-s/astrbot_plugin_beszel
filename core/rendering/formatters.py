@@ -66,11 +66,6 @@ def gb_to_bytes(value: float) -> float:
     return value * (1024**3)
 
 
-def mib_rate_to_bytes(value: float) -> float:
-    """Convert a Beszel MiB/s throughput field to bytes/s."""
-    return value * (1024**2)
-
-
 def gb_iec(value: object) -> str:
     gb = safe_float(value)
     return "N/A" if gb is None else bytes_iec(gb_to_bytes(gb))
@@ -82,12 +77,6 @@ def mb_iec(value: object) -> str:
 
 
 def format_bandwidth(value: object) -> str:
-    if isinstance(value, (list, tuple)) and len(value) >= 2:
-        sent = safe_float(value[0])
-        recv = safe_float(value[1])
-        if sent is not None and recv is not None:
-            return f"↓ {bytes_iec(recv)}/s  ↑ {bytes_iec(sent)}/s"
-        return "N/A"
     scalar = safe_float(value)
     if scalar is not None:
         return f"{bytes_iec(scalar)}/s"
