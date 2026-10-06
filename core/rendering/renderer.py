@@ -142,7 +142,8 @@ class BeszelRenderer:
 
         Args:
             markup: Rendered template markup.
-            width: Output width in CSS pixels.
+            width: Output image width in device pixels; the layout viewport is
+                ``width / dpr`` CSS pixels.
             dpr: Device pixel ratio forwarded to the engine.
 
         Returns:

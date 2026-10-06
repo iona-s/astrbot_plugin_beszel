@@ -10,7 +10,6 @@ from astrbot_plugin_beszel.core.beszel.models import (
     HistoryRange,
     PocketBaseListResult,
     SystemDetailView,
-    SystemHistoryMetrics,
     SystemHistoryPoint,
     SystemHistoryView,
     SystemMetrics,
@@ -84,11 +83,6 @@ def test_omitted_bandwidth_is_normalized_to_zero_without_mutating_input(
     )
     assert point.stats["b"] == [0, 0]
     assert "b" not in raw_stats
-
-    history_metric = SystemHistoryMetrics(
-        created=datetime(2026, 8, 15, 12, 0, tzinfo=UTC), stats=raw_stats
-    )
-    assert history_metric.stats["b"] == [0, 0]
 
 
 def test_explicit_and_malformed_bandwidth_values_are_preserved(models_data) -> None:

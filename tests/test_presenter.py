@@ -213,9 +213,8 @@ def test_container_history_cards_generation_and_threshold_filtering(
 
     # Memory unit conversion: check that values are converted from MiB to bytes
     db_mem_series = next(s for s in mem_card.series if s.name == "db")
-    assert db_mem_series.current_value is not None
     # 2080 MiB in bytes is > 2 GB (2080 * 1024 * 1024)
-    assert db_mem_series.current_value >= 2000 * 1024 * 1024
+    assert db_mem_series.points[-1].value >= 2000 * 1024 * 1024
 
     # Color determinism: the same container name has the identical color in CPU and Memory cards
     cpu_colors = {s.name: s.color for s in cpu_card.series}

@@ -23,7 +23,7 @@
   <div class="header-right">
     {% if header.status %}
     <div class="header-status-row">
-      <span class="chip status-chip status-{{ header.status.state }}">
+      <span class="chip status-{{ header.status.state }}">
         <span class="status-dot status-dot-{{ header.status.state }}"></span>
         {{ header.status.label }}
       </span>
@@ -254,8 +254,9 @@
       <span class="container-col-cpu">CPU 占用</span>
       <span class="container-col-mem">内存占用</span>
     </div>
+    {# Pytakumi counts whitespace text nodes as siblings, so structural selectors cannot find the first row. #}
     {% for c in containers %}
-    <div class="container-tr-row">
+    <div class="container-tr-row{% if loop.first %} container-tr-first{% endif %}">
       <span class="container-col-name container-name-text">{{ c.name }}</span>
       <span class="container-col-cpu tabular-nums">{{ c.cpu_text }}</span>
       <span class="container-col-mem tabular-nums">{{ c.memory_text }}</span>

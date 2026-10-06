@@ -84,10 +84,6 @@ body {
   color: #1e293b;
   font-weight: 500;
 }
-.status-chip {
-  font-weight: 600;
-  padding: 5px 14px;
-}
 .status-up {
   color: #15803d;
   background: #dcfce7;
@@ -443,7 +439,7 @@ body {
   font-size: 13px;
   color: #334155;
 }
-.container-tr-row:first-of-type {
+.container-tr-first {
   border-top: none;
 }
 .container-col-name {
@@ -486,9 +482,6 @@ body {
   color: #0f172a;
   line-height: 1.2;
   letter-spacing: -0.02em;
-}
-.chart-current {
-  display: none;
 }
 .chart-subtitle {
   margin-top: 4px;

@@ -26,7 +26,6 @@ from .models import (
     HistoryRange,
     PocketBaseListResult,
     SystemDetails,
-    SystemHistoryMetrics,
     SystemMetrics,
     SystemSummary,
 )
@@ -423,7 +422,7 @@ class BeszelClient:
 
     async def get_history(
         self, system_id: str, history_range: HistoryRange
-    ) -> list[SystemHistoryMetrics]:
+    ) -> list[SystemMetrics]:
         cutoff = datetime.now(UTC) - history_range.duration
         cutoff_str = cutoff.strftime("%Y-%m-%d %H:%M:%S")
         records = await self._list_records(
@@ -438,10 +437,10 @@ class BeszelClient:
                 "sort": "created",
             },
         )
-        by_timestamp: dict[datetime, SystemHistoryMetrics] = {}
+        by_timestamp: dict[datetime, SystemMetrics] = {}
         for record in records:
             try:
-                point = SystemHistoryMetrics.model_validate(record)
+                point = SystemMetrics.model_validate(record)
                 if point.created is None:
                     continue
                 by_timestamp[point.created] = point

@@ -171,10 +171,6 @@ class SystemMetrics(BaseModel):
         return _normalize_sample_stats(value)
 
 
-class SystemHistoryMetrics(SystemMetrics):
-    created: datetime | None = None
-
-
 class ContainerStats(BaseModel):
     model_config = ConfigDict(
         extra="ignore",

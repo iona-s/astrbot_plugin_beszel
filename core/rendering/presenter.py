@@ -241,7 +241,7 @@ class PresentationBuilder:
         os_str = details.os if details and details.os else ""
         cpu_str = details.cpu if details and details.cpu else ""
         memory_str = (
-            gb_iec(details.memory / (1024**3))
+            bytes_iec(details.memory)
             if (details and details.memory is not None)
             else ""
         )
@@ -1179,7 +1179,6 @@ class PresentationBuilder:
             if not normalized_points:
                 continue
             segments = self.split_series_points(normalized_points, gap_seconds)
-            values = tuple(point.value for point in normalized_points)
             color = (
                 metric_key
                 if isinstance(metric_key, tuple)
@@ -1191,7 +1190,6 @@ class PresentationBuilder:
                     color=color,
                     points=normalized_points,
                     segments=segments,
-                    current_value=values[-1],
                 )
             )
         if not series:
@@ -1217,13 +1215,10 @@ class PresentationBuilder:
     def split_series_points(
         points: Iterable[ChartPoint], gap_seconds: float
     ) -> tuple[tuple[ChartPoint, ...], ...]:
-        """Split chart points at missing samples or non-finite values."""
+        """Split chart points where consecutive samples are over ``gap_seconds`` apart."""
         segments: list[list[ChartPoint]] = []
         previous: datetime | None = None
         for point in points:
-            if not math.isfinite(point.value):
-                previous = None
-                continue
             if (
                 previous is None
                 or (point.created - previous).total_seconds() > gap_seconds
@@ -1238,8 +1233,6 @@ class PresentationBuilder:
         unit: ChartUnit, values: list[float], maximum_override: float | None
     ) -> tuple[float, float]:
         if unit is ChartUnit.PERCENT:
-            if maximum_override is not None and maximum_override > 0:
-                return 0.0, maximum_override
             maximum = max(values) if values else 100.0
             if maximum <= 0:
                 return 0.0, 100.0
@@ -1262,12 +1255,8 @@ class PresentationBuilder:
             return low, max(low + 10.0, maximum + 5.0)
         if unit is ChartUnit.RPM:
             return 0.0, max(100.0, max(values, default=1000.0) * 1.15)
-        if unit is ChartUnit.LOAD:
-            return 0.0, max(0.2, max(values, default=1.0) * 1.15)
-        minimum = min(values) if values else 0.0
-        maximum = max(values) if values else 1.0
-        low = minimum if minimum < 0 else 0.0
-        return low, maximum if maximum > low else low + 1.0
+        # ChartUnit.LOAD is the only remaining unit.
+        return 0.0, max(0.2, max(values, default=1.0) * 1.15)
 
     @staticmethod
     def _status_badge(status: str | None) -> StatusBadge:

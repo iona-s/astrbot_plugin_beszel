@@ -7,7 +7,6 @@ from astrbot_plugin_beszel.core.beszel.models import (
     ContainerHistoryMetrics,
     HistoryRange,
     SystemDetails,
-    SystemHistoryMetrics,
     SystemMetrics,
     SystemSummary,
 )
@@ -29,7 +28,7 @@ class FixtureClient:
         self.metrics = SystemMetrics.model_validate(status_data["metrics"])
         self.containers = status_data["containers"]
         self.history = [
-            SystemHistoryMetrics.model_validate(item) for item in history_data["points"]
+            SystemMetrics.model_validate(item) for item in history_data["points"]
         ]
         self.container_history = (
             [
@@ -309,13 +308,6 @@ async def test_list_systems_cache_lifecycle(
     current_time += 16.0
     await service.list_systems()
     assert count_list_calls() == initial_calls + 2
-
-    await service.list_systems(force_refresh=True)
-    assert count_list_calls() == initial_calls + 3
-
-    service.invalidate_cache()
-    await service.list_systems()
-    assert count_list_calls() == initial_calls + 4
 
 
 @pytest.mark.asyncio

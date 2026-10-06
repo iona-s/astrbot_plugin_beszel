@@ -163,7 +163,6 @@ def test_chart_geometry_single_point_segment_has_marker() -> None:
         color=(255, 0, 0),
         points=(point,),
         segments=((point,),),
-        current_value=42.0,
     )
     card = HistoryChartCard(
         title="单点测试",
@@ -206,7 +205,6 @@ def test_chart_geometry_data_gap_isolated_single_point() -> None:
         color=(0, 128, 255),
         points=(p1, p2, p3, p4),
         segments=((p1, p2, p3), (p4,)),
-        current_value=40.0,
     )
     card = HistoryChartCard(
         title="缺口单点测试",
@@ -266,7 +264,6 @@ def _axis_times(
                 color=(0, 128, 255),
                 points=points,
                 segments=(points,),
-                current_value=20.0,
             ),
         ),
         axis_min=0.0,
@@ -371,7 +368,6 @@ def test_chart_x_positions_follow_the_card_window() -> None:
                 color=(0, 128, 255),
                 points=points,
                 segments=(points,),
-                current_value=points[-1].value,
             )
             for name, points in (("late", late_points), ("stopped", stopped_points))
         ),

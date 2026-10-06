@@ -135,7 +135,6 @@ class ChartSeries:
     color: Color
     points: tuple[ChartPoint, ...]
     segments: tuple[tuple[ChartPoint, ...], ...]
-    current_value: float | None
 
 
 @dataclass(frozen=True, slots=True)

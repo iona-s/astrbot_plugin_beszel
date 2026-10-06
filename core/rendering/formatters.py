@@ -72,23 +72,13 @@ def mib_rate_to_bytes(value: float) -> float:
 
 
 def gb_iec(value: object) -> str:
-    if value is None or isinstance(value, bool):
-        return "N/A"
-    try:
-        gb = float(value)
-    except (TypeError, ValueError):
-        return "N/A"
-    return bytes_iec(gb_to_bytes(gb))
+    gb = safe_float(value)
+    return "N/A" if gb is None else bytes_iec(gb_to_bytes(gb))
 
 
 def mb_iec(value: object) -> str:
-    if value is None or isinstance(value, bool):
-        return "N/A"
-    try:
-        mb = float(value)
-    except (TypeError, ValueError):
-        return "N/A"
-    return bytes_iec(mb * (1024**2))
+    mb = safe_float(value)
+    return "N/A" if mb is None else bytes_iec(mb * (1024**2))
 
 
 def format_bandwidth(value: object) -> str:
@@ -121,28 +111,26 @@ def format_bytes_clean(value: float) -> str:
     return f"{current:.1f} {units[index]}"
 
 
-def format_chart_value(value: object, unit_type: ChartUnit | str) -> str:
-    """Format one normalized chart value for a label or legend."""
+def format_chart_value(value: object, unit: ChartUnit) -> str:
+    """Format one normalized chart value for an axis label."""
     numeric = safe_float(value)
     if numeric is None:
         return "N/A"
-    unit = unit_type.value if isinstance(unit_type, ChartUnit) else str(unit_type)
-    if unit == ChartUnit.PERCENT.value:
+    if unit is ChartUnit.PERCENT:
         if abs(numeric - round(numeric)) < 0.05:
             return f"{round(numeric)}%"
         return f"{numeric:.1f}%"
-    if unit == ChartUnit.BYTES.value:
+    if unit is ChartUnit.BYTES:
         return format_bytes_clean(numeric)
-    if unit == ChartUnit.BYTES_PER_SECOND.value:
+    if unit is ChartUnit.BYTES_PER_SECOND:
         return f"{format_bytes_clean(numeric)}/s"
-    if unit == ChartUnit.WATTS.value:
+    if unit is ChartUnit.WATTS:
         return f"{round(numeric)}W"
-    if unit == ChartUnit.TEMPERATURE.value:
+    if unit is ChartUnit.TEMPERATURE:
         if abs(numeric - round(numeric)) < 0.05:
             return f"{round(numeric)} °C"
         return f"{numeric:.1f} °C"
-    if unit == ChartUnit.RPM.value:
+    if unit is ChartUnit.RPM:
         return f"{round(numeric)} RPM"
-    if unit == ChartUnit.LOAD.value:
-        return f"{numeric:.2f}"
-    return f"{numeric:.1f}"
+    # ChartUnit.LOAD is the only remaining unit.
+    return f"{numeric:.2f}"

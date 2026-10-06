@@ -76,7 +76,6 @@ class ChartSegmentGeometry:
     area_path: str | None
     line_path: str | None
     markers: tuple[ChartMarker, ...]
-    grad_id: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -102,7 +101,6 @@ class ChartGeometry:
 @dataclass(frozen=True, slots=True)
 class ChartTemplateView:
     card: HistoryChartCard
-    current_label: str
     geometry: ChartGeometry | None
 
 
@@ -122,14 +120,9 @@ def build_chart_view(
     Returns:
         The card with its geometry, or without geometry when it has no points.
     """
-    current = card.series[0].current_value if card.series else None
     points = [point for series in card.series for point in series.points]
     if not points:
-        return ChartTemplateView(
-            card=card,
-            current_label=format_chart_value(current, card.unit),
-            geometry=None,
-        )
+        return ChartTemplateView(card=card, geometry=None)
 
     window_start = (
         _timestamp(card.time_start)
@@ -159,8 +152,8 @@ def build_chart_view(
     plot_width = width - PLOT_LEFT - PLOT_RIGHT_INSET
 
     segments: list[ChartSegmentGeometry] = []
-    for series_index, series in enumerate(card.series):
-        for segment_index, segment in enumerate(series.segments):
+    for series in card.series:
+        for segment in series.segments:
             coords = [
                 _point_xy(
                     point,
@@ -190,7 +183,6 @@ def build_chart_view(
                     area_path=area_path,
                     line_path=line_path,
                     markers=markers,
-                    grad_id=f"grad-{series_index}-{segment_index}",
                 )
             )
 
@@ -203,7 +195,6 @@ def build_chart_view(
 
     return ChartTemplateView(
         card=card,
-        current_label=format_chart_value(current, card.unit),
         geometry=ChartGeometry(
             width=width,
             height=CHART_HEIGHT,

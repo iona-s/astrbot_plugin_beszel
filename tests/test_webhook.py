@@ -257,17 +257,9 @@ class _FakeDelivery:
         self.closed = True
 
 
-class _FakeService:
-    def __init__(self, overview_data) -> None:
-        self.systems = [SystemSummary.model_validate(item) for item in overview_data]
-
-    async def list_systems(self):
-        return self.systems
-
-
 @pytest.mark.asyncio
 async def test_server_authenticates_before_reading_body(
-    webhook_data, overview_data, config_data
+    webhook_data, config_data
 ) -> None:
     target_umos = tuple(config_data["complete"]["webhook"]["target_umos"][:1])
     config = WebhookConfig(
@@ -277,7 +269,7 @@ async def test_server_authenticates_before_reading_body(
         target_umos=target_umos,
     )
     delivery = _FakeDelivery()
-    server = WebhookServer(config, delivery, _FakeService(overview_data))
+    server = WebhookServer(config, delivery)
     request = _FakeRequest(
         {"Authorization": webhook_data["auth"]["invalid"]}, fail_read=True
     )
@@ -292,7 +284,7 @@ async def test_server_authenticates_before_reading_body(
 
 @pytest.mark.asyncio
 async def test_server_delivers_valid_payload_and_handles_delivery_failure(
-    webhook_data, overview_data, config_data
+    webhook_data, config_data
 ) -> None:
     target_umos = tuple(config_data["complete"]["webhook"]["target_umos"][:1])
     config = WebhookConfig(
@@ -311,13 +303,13 @@ async def test_server_delivers_valid_payload_and_handles_delivery_failure(
         _encoded_body(case),
     )
     delivery = _FakeDelivery(successes=1)
-    server = WebhookServer(config, delivery, _FakeService(overview_data))
+    server = WebhookServer(config, delivery)
     response = await server.notify(request)
     assert response.status == 200
     assert delivery.notifications[0].request_id
 
     failed_delivery = _FakeDelivery(successes=0)
-    failed_server = WebhookServer(config, failed_delivery, _FakeService(overview_data))
+    failed_server = WebhookServer(config, failed_delivery)
     failed_response = await failed_server.notify(
         _FakeRequest(
             {
@@ -539,7 +531,7 @@ async def test_delivery_accounting_handles_success_failure_and_mixed_targets(
 
 @pytest.mark.asyncio
 async def test_server_rejects_non_ascii_and_malformed_auth_before_reading_body(
-    webhook_data, overview_data, config_data
+    webhook_data, config_data
 ) -> None:
     target_umos = tuple(config_data["complete"]["webhook"]["target_umos"][:1])
     config = WebhookConfig(
@@ -549,7 +541,7 @@ async def test_server_rejects_non_ascii_and_malformed_auth_before_reading_body(
         target_umos=target_umos,
     )
     delivery = _FakeDelivery()
-    server = WebhookServer(config, delivery, _FakeService(overview_data))
+    server = WebhookServer(config, delivery)
 
     # 1. Non-ASCII header returns 401 without reading body
     request_non_ascii = _FakeRequest(
@@ -567,9 +559,7 @@ async def test_server_rejects_non_ascii_and_malformed_auth_before_reading_body(
         token=webhook_data["auth"]["non_ascii_token"],
         target_umos=target_umos,
     )
-    server_invalid_token = WebhookServer(
-        invalid_config, delivery, _FakeService(overview_data)
-    )
+    server_invalid_token = WebhookServer(invalid_config, delivery)
     request_valid_ascii = _FakeRequest(
         {"Authorization": webhook_data["auth"]["valid"]}, fail_read=True
     )
@@ -580,7 +570,7 @@ async def test_server_rejects_non_ascii_and_malformed_auth_before_reading_body(
 
 @pytest.mark.asyncio
 async def test_delivery_with_real_context_missing_platform_returns_502(
-    webhook_data, overview_data
+    webhook_data,
 ) -> None:
     from unittest.mock import MagicMock
 
@@ -602,7 +592,7 @@ async def test_delivery_with_real_context_missing_platform_returns_502(
         service=_FakeHistoryService(),
         renderer=_FakeRenderer(),
     )
-    server = WebhookServer(config, delivery, _FakeService(overview_data))
+    server = WebhookServer(config, delivery)
     case = webhook_data["generic_json"]
     request = _FakeRequest(
         {
@@ -628,7 +618,7 @@ async def test_loopback_server_handles_non_ascii_auth_over_http(webhook_data) ->
         token=webhook_data["auth"]["token"],
         target_umos=("aiocqhttp:GroupMessage:123456",),
     )
-    server = WebhookServer(config, _FakeDelivery(), _FakeHistoryService())
+    server = WebhookServer(config, _FakeDelivery())
     await server.start()
     try:
         assert server._site is not None and server._site._server is not None
@@ -661,7 +651,7 @@ async def test_loopback_server_rejects_oversized_body_with_413(webhook_data) -> 
         target_umos=("aiocqhttp:GroupMessage:123456",),
     )
     delivery = _FakeDelivery()
-    server = WebhookServer(config, delivery, _FakeHistoryService())
+    server = WebhookServer(config, delivery)
     await server.start()
     try:
         assert server._site is not None and server._site._server is not None
@@ -874,7 +864,7 @@ def test_webhook_analysis_trigger_parsing_rules() -> None:
 
 @pytest.mark.asyncio
 async def test_webhook_http_response_does_not_wait_for_history_or_analysis(
-    webhook_data, overview_data
+    webhook_data,
 ) -> None:
     hang_render = asyncio.Event()
     hang_llm = asyncio.Event()
@@ -909,7 +899,7 @@ async def test_webhook_http_response_does_not_wait_for_history_or_analysis(
     delivery = WebhookDelivery(
         context=context, config=config, service=service, renderer=renderer
     )
-    server = WebhookServer(config, delivery, service)
+    server = WebhookServer(config, delivery)
 
     payload = {
         "source": "beszel",
@@ -949,7 +939,7 @@ async def test_webhook_http_response_does_not_wait_for_history_or_analysis(
 
 @pytest.mark.asyncio
 async def test_webhook_raw_text_failure_returns_502_but_background_continues(
-    webhook_data, overview_data
+    webhook_data,
 ) -> None:
     provider = _FakeProvider()
     renderer = _FakeRenderer()
@@ -980,7 +970,7 @@ async def test_webhook_raw_text_failure_returns_502_but_background_continues(
     delivery = WebhookDelivery(
         context=context, config=config, service=service, renderer=renderer
     )
-    server = WebhookServer(config, delivery, service)
+    server = WebhookServer(config, delivery)
 
     payload = {
         "source": "beszel",
@@ -1748,9 +1738,7 @@ async def test_webhook_server_stop_drains_handlers_before_closing_delivery() -> 
         async def close(self) -> None:
             order.append("delivery.close")
 
-    server = WebhookServer(
-        WebhookConfig(enabled=True), _Delivery(), _FakeHistoryService()
-    )
+    server = WebhookServer(WebhookConfig(enabled=True), _Delivery())
     server._runner = _Runner()
     await server.stop()
     assert order == ["runner.cleanup", "delivery.close"]

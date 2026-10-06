@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import time
 from datetime import UTC, datetime
 
@@ -39,59 +40,31 @@ class QueryService:
         self._cache_expires_at: float = 0.0
         self._cache_lock = asyncio.Lock()
 
-    def invalidate_cache(self) -> None:
-        """Explicitly clear the cached system list."""
-        self._cached_systems = None
-        self._cache_expires_at = 0.0
-
-    async def list_systems(self, *, force_refresh: bool = False) -> list[SystemSummary]:
-        if self.cache_ttl <= 0:
-            systems = await self.client.list_systems()
-            sorted_systems = sorted(systems, key=self._sort_key)
-            logger.debug(
-                "QueryService.list_systems: retrieved %d systems: %s",
-                len(sorted_systems),
-                [(s.name, s.id, s.status) for s in sorted_systems],
-            )
-            return sorted_systems
-
-        now = time.monotonic()
-        if (
-            not force_refresh
-            and self._cached_systems is not None
-            and now < self._cache_expires_at
-        ):
-            logger.debug(
-                "QueryService.list_systems: cache hit (%d systems)",
-                len(self._cached_systems),
-            )
-            return list(self._cached_systems)
-
-        async with self._cache_lock:
-            now = time.monotonic()
+    async def list_systems(self) -> list[SystemSummary]:
+        # Without a TTL nothing is cached, so concurrent callers fetch in parallel.
+        caching = self.cache_ttl > 0
+        async with self._cache_lock if caching else contextlib.nullcontext():
             if (
-                not force_refresh
-                and self._cached_systems is not None
-                and now < self._cache_expires_at
+                self._cached_systems is not None
+                and time.monotonic() < self._cache_expires_at
             ):
                 logger.debug(
-                    "QueryService.list_systems: cache hit after lock (%d systems)",
+                    "QueryService.list_systems: cache hit (%d systems)",
                     len(self._cached_systems),
                 )
                 return list(self._cached_systems)
 
-            systems = await self.client.list_systems()
-            sorted_systems = sorted(systems, key=self._sort_key)
-            self._cached_systems = tuple(sorted_systems)
-            self._cache_expires_at = time.monotonic() + self.cache_ttl
-
+            systems = sorted(await self.client.list_systems(), key=self._sort_key)
+            if caching:
+                self._cached_systems = tuple(systems)
+                self._cache_expires_at = time.monotonic() + self.cache_ttl
             logger.debug(
-                "QueryService.list_systems: retrieved %d systems (cache updated, ttl=%.1fs): %s",
-                len(sorted_systems),
+                "QueryService.list_systems: retrieved %d systems (ttl=%.1fs): %s",
+                len(systems),
                 self.cache_ttl,
-                [(s.name, s.id, s.status) for s in sorted_systems],
+                [(s.name, s.id, s.status) for s in systems],
             )
-            return list(sorted_systems)
+            return systems
 
     async def get_overview(self) -> list[SystemSummary]:
         systems = await self.client.list_systems()

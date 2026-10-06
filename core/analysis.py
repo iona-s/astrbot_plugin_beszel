@@ -291,48 +291,27 @@ def extract_analysis_context(
     all_container_names = set(c_cpu_map.keys()) | set(c_mem_map.keys())
 
     if all_container_names:
-        baseline_cutoff = t_ref - timedelta(minutes=15)
         for name in all_container_names:
-            cpu_pts = sorted(c_cpu_map.get(name, {}).items(), key=lambda x: x[0])
-            mem_pts = sorted(c_mem_map.get(name, {}).items(), key=lambda x: x[0])
-
-            summary = ContainerMetricSummary(name=name, source="history")
-
-            if cpu_pts:
-                cpu_hour = [v for _, v in cpu_pts]
-                cpu_base = [v for dt, v in cpu_pts if dt < baseline_cutoff]
-                cpu_rec = [v for dt, v in cpu_pts if dt >= baseline_cutoff]
-                summary.hour_cpu_peak = round(max(cpu_hour), 2)
-                if len(cpu_base) >= 3:
-                    summary.baseline_cpu = round(sum(cpu_base) / len(cpu_base), 2)
-                if cpu_rec:
-                    summary.recent_cpu_peak = round(max(cpu_rec), 2)
-                if (
-                    summary.recent_cpu_peak is not None
-                    and summary.baseline_cpu is not None
-                ):
-                    summary.cpu_delta_pp = round(
-                        summary.recent_cpu_peak - summary.baseline_cpu, 2
-                    )
-
-            if mem_pts:
-                mem_hour = [v for _, v in mem_pts]
-                mem_base = [v for dt, v in mem_pts if dt < baseline_cutoff]
-                mem_rec = [v for dt, v in mem_pts if dt >= baseline_cutoff]
-                summary.hour_mem_peak_mib = round(max(mem_hour), 2)
-                if len(mem_base) >= 3:
-                    summary.baseline_mem_mib = round(sum(mem_base) / len(mem_base), 2)
-                if mem_rec:
-                    summary.recent_mem_peak_mib = round(max(mem_rec), 2)
-                if (
-                    summary.recent_mem_peak_mib is not None
-                    and summary.baseline_mem_mib is not None
-                ):
-                    summary.mem_delta_mib = round(
-                        summary.recent_mem_peak_mib - summary.baseline_mem_mib, 2
-                    )
-
-            container_summaries.append(summary)
+            cpu = _process_metric_series(
+                sorted(c_cpu_map.get(name, {}).items(), key=lambda x: x[0]), t_ref
+            )
+            mem = _process_metric_series(
+                sorted(c_mem_map.get(name, {}).items(), key=lambda x: x[0]), t_ref
+            )
+            container_summaries.append(
+                ContainerMetricSummary(
+                    name=name,
+                    hour_cpu_peak=cpu.hour_peak,
+                    baseline_cpu=cpu.baseline,
+                    recent_cpu_peak=cpu.recent_peak,
+                    cpu_delta_pp=cpu.delta_pp,
+                    hour_mem_peak_mib=mem.hour_peak,
+                    baseline_mem_mib=mem.baseline,
+                    recent_mem_peak_mib=mem.recent_peak,
+                    mem_delta_mib=mem.delta_pp,
+                    source="history",
+                )
+            )
     elif detail and detail.containers:
         # Fallback to snapshot containers
         for cs in detail.containers:
@@ -439,51 +418,28 @@ def extract_analysis_context(
         node_dict["hardware"] = hardware_dict
 
     metrics_dict: dict[str, Any] = {}
-    if cpu_stats.latest is not None or cpu_stats.hour_peak is not None:
-        metrics_dict["cpu"] = {
-            "latest_pct": cpu_stats.latest,
-            "latest_source": cpu_stats.latest_source,
-            "baseline_pct": cpu_stats.baseline,
-            "recent_peak_pct": cpu_stats.recent_peak,
-            "hour_peak_pct": cpu_stats.hour_peak,
-            "delta_pp": cpu_stats.delta_pp,
-            "baseline_samples": cpu_stats.baseline_samples,
-            "recent_samples": cpu_stats.recent_samples,
+    for metric_name, metric_stats, used_gib, total_gib in (
+        ("cpu", cpu_stats, None, None),
+        ("memory", mem_stats, latest_mem_used, latest_mem_total),
+        ("disk", disk_stats, latest_disk_used, latest_disk_total),
+    ):
+        if metric_stats.latest is None and metric_stats.hour_peak is None:
+            continue
+        metric_item: dict[str, Any] = {
+            "latest_pct": metric_stats.latest,
+            "latest_source": metric_stats.latest_source,
+            "baseline_pct": metric_stats.baseline,
+            "recent_peak_pct": metric_stats.recent_peak,
+            "hour_peak_pct": metric_stats.hour_peak,
+            "delta_pp": metric_stats.delta_pp,
+            "baseline_samples": metric_stats.baseline_samples,
+            "recent_samples": metric_stats.recent_samples,
         }
-
-    if mem_stats.latest is not None or mem_stats.hour_peak is not None:
-        m_item: dict[str, Any] = {
-            "latest_pct": mem_stats.latest,
-            "latest_source": mem_stats.latest_source,
-            "baseline_pct": mem_stats.baseline,
-            "recent_peak_pct": mem_stats.recent_peak,
-            "hour_peak_pct": mem_stats.hour_peak,
-            "delta_pp": mem_stats.delta_pp,
-            "baseline_samples": mem_stats.baseline_samples,
-            "recent_samples": mem_stats.recent_samples,
-        }
-        if latest_mem_used is not None and latest_mem_used >= 0.0:
-            m_item["latest_used_gib"] = round(latest_mem_used, 1)
-        if latest_mem_total is not None and latest_mem_total > 0.0:
-            m_item["latest_total_gib"] = round(latest_mem_total, 1)
-        metrics_dict["memory"] = m_item
-
-    if disk_stats.latest is not None or disk_stats.hour_peak is not None:
-        d_item: dict[str, Any] = {
-            "latest_pct": disk_stats.latest,
-            "latest_source": disk_stats.latest_source,
-            "baseline_pct": disk_stats.baseline,
-            "recent_peak_pct": disk_stats.recent_peak,
-            "hour_peak_pct": disk_stats.hour_peak,
-            "delta_pp": disk_stats.delta_pp,
-            "baseline_samples": disk_stats.baseline_samples,
-            "recent_samples": disk_stats.recent_samples,
-        }
-        if latest_disk_used is not None and latest_disk_used >= 0.0:
-            d_item["latest_used_gib"] = round(latest_disk_used, 1)
-        if latest_disk_total is not None and latest_disk_total > 0.0:
-            d_item["latest_total_gib"] = round(latest_disk_total, 1)
-        metrics_dict["disk"] = d_item
+        if used_gib is not None and used_gib >= 0.0:
+            metric_item["latest_used_gib"] = round(used_gib, 1)
+        if total_gib is not None and total_gib > 0.0:
+            metric_item["latest_total_gib"] = round(total_gib, 1)
+        metrics_dict[metric_name] = metric_item
 
     containers_list: list[dict[str, Any]] = []
     for tc in top_containers:

@@ -8,7 +8,6 @@ from uuid import uuid4
 from aiohttp import web
 from astrbot.api import logger
 
-from ..beszel.service import QueryService
 from ..config import WebhookConfig
 from .delivery import WebhookDelivery
 from .parsers import MAX_BODY_BYTES, WebhookPayloadError, parse_payload
@@ -17,15 +16,9 @@ from .parsers import MAX_BODY_BYTES, WebhookPayloadError, parse_payload
 class WebhookServer:
     """Own an aiohttp runner/site inside the plugin event loop."""
 
-    def __init__(
-        self,
-        config: WebhookConfig,
-        delivery: WebhookDelivery,
-        service: QueryService,
-    ) -> None:
+    def __init__(self, config: WebhookConfig, delivery: WebhookDelivery) -> None:
         self.config = config
         self.delivery = delivery
-        self.service = service
         self._runner: web.AppRunner | None = None
         self._site: web.TCPSite | None = None
 

@@ -103,15 +103,10 @@ class BeszelPlugin(Star):
             delivery = WebhookDelivery(
                 self.context, self.config.webhook, self.service, self.renderer
             )
-            self.webhook_server = WebhookServer(
-                self.config.webhook,
-                delivery,
-                self.service,
-            )
+            self.webhook_server = WebhookServer(self.config.webhook, delivery)
             await self.webhook_server.start()
 
     async def terminate(self) -> None:
-        self.service.invalidate_cache()
         if self.webhook_server is not None:
             try:
                 await self.webhook_server.stop()
