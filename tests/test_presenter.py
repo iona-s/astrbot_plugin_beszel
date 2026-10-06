@@ -239,6 +239,47 @@ def test_container_history_gaps_and_empty_handling(
     assert len(batch_series.segments) == 2
 
 
+def test_container_history_keeps_top_container_when_all_fall_below_cutoff(
+    history_data, container_history_data, rendering_data
+) -> None:
+    builder = _builder(rendering_data)
+
+    idle_points = []
+    for raw in container_history_data["idle_records"]:
+        m = ContainerHistoryMetrics.model_validate(raw)
+        if m.created is not None:
+            idle_points.append(ContainerHistoryPoint(created=m.created, stats=m.stats))
+    view_idle = SystemHistoryView.model_validate(history_data)
+    view_idle.container_points = idle_points
+    doc_idle = builder.build_history(view_idle)
+
+    # Every CPU peak is below the default 10% cutoff of the 10% axis floor.
+    cpu_card = next(c for c in doc_idle.cards if c.title == "容器 CPU 使用率")
+    assert [s.name for s in cpu_card.series] == ["proxy"]
+    assert cpu_card.extra_series_count == 2
+    mem_card = next(c for c in doc_idle.cards if c.title == "容器内存使用")
+    assert [s.name for s in mem_card.series] == ["proxy", "agent", "cron"]
+    assert mem_card.extra_series_count == 0
+
+    zero_memory_points = []
+    for raw in container_history_data["zero_memory_records"]:
+        m = ContainerHistoryMetrics.model_validate(raw)
+        if m.created is not None:
+            zero_memory_points.append(
+                ContainerHistoryPoint(created=m.created, stats=m.stats)
+            )
+    view_zero = SystemHistoryView.model_validate(history_data)
+    view_zero.container_points = zero_memory_points
+    doc_zero = builder.build_history(view_zero)
+
+    cpu_card = next(c for c in doc_zero.cards if c.title == "容器 CPU 使用率")
+    assert [s.name for s in cpu_card.series] == ["proxy", "agent"]
+    assert cpu_card.extra_series_count == 0
+    mem_card = next(c for c in doc_zero.cards if c.title == "容器内存使用")
+    assert [s.name for s in mem_card.series] == ["agent"]
+    assert mem_card.extra_series_count == 1
+
+
 def test_history_cards_ordering_matches_beszel_hub_option_a(
     history_data, container_history_data, rendering_data
 ) -> None:

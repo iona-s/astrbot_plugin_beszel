@@ -1054,9 +1054,11 @@ class PresentationBuilder:
                 kept_cpu_names = [name for name, _ in sorted_cpu]
             else:
                 cpu_cutoff = cpu_axis_max * (threshold / 100.0)
+                # The axis floor keeps the cutoff above every peak on idle hosts;
+                # keeping the busiest container preserves the card and its +N.
                 kept_cpu_names = [
                     name for name, peak in sorted_cpu if peak >= cpu_cutoff
-                ]
+                ] or [sorted_cpu[0][0]]
             extra_cpu = max(0, len(sorted_cpu) - len(kept_cpu_names))
         else:
             kept_cpu_names = []
@@ -1080,7 +1082,7 @@ class PresentationBuilder:
                 mem_cutoff = mem_axis_max * (threshold / 100.0)
                 kept_mem_names = [
                     name for name, peak in sorted_mem if peak >= mem_cutoff
-                ]
+                ] or [sorted_mem[0][0]]
             extra_mem = max(0, len(sorted_mem) - len(kept_mem_names))
         else:
             kept_mem_names = []
