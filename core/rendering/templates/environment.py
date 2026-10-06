@@ -6,6 +6,7 @@ from datetime import tzinfo
 from pathlib import Path
 from typing import Any
 
+from astrbot.api import logger
 from jinja2 import Environment, FileSystemLoader, StrictUndefined, Template
 
 from ...errors import RenderingError
@@ -57,6 +58,11 @@ class BeszelTemplateRenderer:
         try:
             markup = template.render(**context)
         except Exception as exc:
+            logger.warning(
+                "Image rendering failed at stage=template: %s",
+                type(exc).__name__,
+                exc_info=True,
+            )
             raise RenderingError("图片模板生成失败") from exc
         if not markup:
             raise RenderingError("图片模板生成结果为空")

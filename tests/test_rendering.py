@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import dataclasses
+import logging
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
@@ -14,6 +16,9 @@ from astrbot_plugin_beszel.core.beszel.models import (
     SystemHistoryView,
     SystemSummary,
 )
+from astrbot_plugin_beszel.core.errors import RenderingError
+from astrbot_plugin_beszel.core.rendering import renderer as renderer_module
+from astrbot_plugin_beszel.core.rendering.engine import PytakumiEngine
 from astrbot_plugin_beszel.core.rendering.models import (
     ChartPoint,
     ChartSeries,
@@ -301,8 +306,6 @@ def test_chart_multi_series_ticks_cover_full_time_span_and_stay_in_bounds() -> N
 
 
 def test_pytakumi_engine_forwards_device_pixel_ratio() -> None:
-    from astrbot_plugin_beszel.core.rendering.engine import PytakumiEngine
-
     engine = PytakumiEngine(
         bundled_font_path=BeszelRenderer._bundled_font_path,
         configured_font_path=None,
@@ -334,6 +337,57 @@ def test_pytakumi_engine_forwards_device_pixel_ratio() -> None:
     assert png.startswith(b"\x89PNG\r\n\x1a\n")
     assert captured["width"] == 800
     assert captured["device_pixel_ratio"] == 2.5
+
+
+def test_engine_render_failure_logs_warning_without_markup(
+    caplog, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(logging.getLogger("astrbot"), "propagate", True)
+    caplog.set_level(logging.DEBUG, logger="astrbot")
+    engine = PytakumiEngine(
+        bundled_font_path=BeszelRenderer._bundled_font_path,
+        configured_font_path=None,
+    )
+
+    class FailingNativeRenderer:
+        def render(self, *args, **kwargs) -> bytes:
+            raise RuntimeError("native failure")
+
+    engine._renderer = FailingNativeRenderer()
+    markup = "<html><body>fixture-render-markup</body></html>"
+
+    with pytest.raises(RenderingError, match="请查看日志"):
+        engine.render(markup, width=800)
+
+    warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert len(warnings) == 1
+    assert "stage=render" in warnings[0].getMessage()
+    assert "RuntimeError" in warnings[0].getMessage()
+    assert warnings[0].exc_info is not None
+    assert "fixture-render-markup" not in caplog.text
+
+
+def test_template_failure_logs_warning_without_context(
+    status_data, rendering_data, caplog, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(logging.getLogger("astrbot"), "propagate", True)
+    caplog.set_level(logging.DEBUG, logger="astrbot")
+    renderer = _renderer(rendering_data)
+    document = renderer.presentation.build_status(
+        SystemDetailView.model_validate(status_data)
+    )
+    broken = dataclasses.replace(document, metric_cards=None)
+    caplog.clear()
+
+    with pytest.raises(RenderingError, match="图片模板生成失败"):
+        renderer.templates.render_status(broken)
+
+    warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert len(warnings) == 1
+    assert "stage=template" in warnings[0].getMessage()
+    assert "TypeError" in warnings[0].getMessage()
+    assert warnings[0].exc_info is not None
+    assert status_data["summary"]["name"] not in caplog.text
 
 
 @pytest.mark.asyncio
@@ -553,6 +607,57 @@ async def test_cancelled_running_render_keeps_wait_idle_pending(
 
         finish_native.set()
         await asyncio.wait_for(idle_task, timeout=5)
+    finally:
+        finish_native.set()
+        renderer.close()
+
+
+@pytest.mark.asyncio
+async def test_closed_renderer_rejects_new_work_but_finishes_started_render(
+    history_data, rendering_data, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    loop = asyncio.get_running_loop()
+    native_entered = asyncio.Event()
+    finish_native = threading.Event()
+    created: list[str] = []
+
+    class Engine:
+        def __init__(self, **_kwargs) -> None:
+            created.append("engine")
+
+        def render(self, *args, **kwargs) -> bytes:
+            loop.call_soon_threadsafe(native_entered.set)
+            finish_native.wait(10)
+            return b"\x89PNG\r\n\x1a\nfake"
+
+    def executor_factory(**kwargs) -> ThreadPoolExecutor:
+        created.append("executor")
+        return ThreadPoolExecutor(**kwargs)
+
+    monkeypatch.setattr(renderer_module, "PytakumiEngine", Engine)
+    monkeypatch.setattr(renderer_module, "ThreadPoolExecutor", executor_factory)
+    view = SystemHistoryView.model_validate(history_data)
+    renderer = _renderer(rendering_data)
+    render_task = asyncio.create_task(renderer.render_history(view))
+    try:
+        await native_entered.wait()
+        renderer.close()
+        renderer.close()
+
+        with pytest.raises(RenderingError, match="已关闭"):
+            await renderer.initialize()
+        with pytest.raises(RenderingError, match="已关闭"):
+            await renderer.render_history(view)
+        assert created == ["engine", "executor"]
+
+        idle_task = asyncio.create_task(renderer.wait_idle())
+        await asyncio.sleep(0)
+        assert not idle_task.done()
+
+        finish_native.set()
+        png = await asyncio.wait_for(render_task, timeout=5)
+        await asyncio.wait_for(idle_task, timeout=5)
+        assert png.startswith(b"\x89PNG\r\n\x1a\n")
     finally:
         finish_native.set()
         renderer.close()

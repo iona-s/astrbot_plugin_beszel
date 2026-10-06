@@ -570,3 +570,27 @@ async def test_client_maps_http_errors(
     if isinstance(exc_info.value, BeszelTransportError):
         assert exc_info.value.status_code == response["status"]
     await client.close()
+
+
+@pytest.mark.asyncio
+async def test_closed_client_rejects_queries_without_new_session(
+    client_data, config_data, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sessions: list[FixtureSession] = []
+
+    def session_factory(**_kwargs) -> FixtureSession:
+        sessions.append(_records_session(client_data, []))
+        return sessions[-1]
+
+    monkeypatch.setattr(client_module.aiohttp, "ClientSession", session_factory)
+    client = BeszelClient(_fixture_config(config_data))
+
+    await client.list_systems()
+    await client.close()
+    await client.close()
+
+    with pytest.raises(BeszelTransportError, match="已关闭"):
+        await client.list_systems()
+    assert len(sessions) == 1
+    assert sessions[0].closed is True
+    assert len(sessions[0].requests) == 2

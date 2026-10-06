@@ -46,8 +46,11 @@ class BeszelClient:
         self._session: aiohttp.ClientSession | None = None
         self._token: str | None = None
         self._token_expires_at = 0.0
+        self._closed = False
 
     async def _ensure_session(self) -> aiohttp.ClientSession:
+        if self._closed:
+            raise BeszelTransportError("❌ Beszel 客户端已关闭")
         if self._session is None or self._session.closed:
             self._session = aiohttp.ClientSession(
                 timeout=aiohttp.ClientTimeout(total=self.config.timeout_seconds),
@@ -56,6 +59,7 @@ class BeszelClient:
         return self._session
 
     async def close(self) -> None:
+        self._closed = True
         if self._session is not None and not self._session.closed:
             await self._session.close()
         self._session = None

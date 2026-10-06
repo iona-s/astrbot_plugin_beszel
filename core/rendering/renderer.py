@@ -50,6 +50,7 @@ class BeszelRenderer:
         self._active_renders: int = 0
         self._idle_event: asyncio.Event = asyncio.Event()
         self._idle_event.set()
+        self._closed = False
 
     def _scaled_dimensions(self, base_width: int) -> tuple[int, float]:
         target_width = round(base_width * self._render_scale / 100)
@@ -63,15 +64,24 @@ class BeszelRenderer:
         return self._engine
 
     async def initialize(self) -> None:
-        """Initialize the native engine and font registration off the event loop."""
+        """Initialize the native engine and font registration off the event loop.
+
+        Raises:
+            RenderingError: The renderer is closed or the engine cannot start.
+        """
+        if self._closed:
+            raise RenderingError("🖼️ 图片渲染引擎已关闭")
         if self._engine is not None:
             return
-        self._engine = await asyncio.to_thread(
+        engine = await asyncio.to_thread(
             PytakumiEngine,
             bundled_font_path=self._bundled_font_path,
             configured_font_path=self._font_path,
             stylesheet=self.templates.stylesheet,
         )
+        if self._closed:
+            raise RenderingError("🖼️ 图片渲染引擎已关闭")
+        self._engine = engine
 
     async def render_overview(
         self, systems: list[SystemSummary], page_size: int
@@ -137,7 +147,12 @@ class BeszelRenderer:
 
         Returns:
             Encoded PNG bytes.
+
+        Raises:
+            RenderingError: The renderer is closed or the render fails.
         """
+        if self._closed:
+            raise RenderingError("🖼️ 图片渲染引擎已关闭")
         engine = self.engine
         if self._executor is None:
             self._executor = ThreadPoolExecutor(thread_name_prefix="beszel-render")
@@ -163,7 +178,12 @@ class BeszelRenderer:
         await self._idle_event.wait()
 
     def close(self) -> None:
-        """Drop the native engine and release the render pool without blocking."""
+        """Drop the native engine and release the render pool without blocking.
+
+        Renders already submitted still finish and release ``wait_idle``; later
+        calls fail instead of recreating the engine or the pool.
+        """
+        self._closed = True
         self._engine = None
         if self._executor is not None:
             self._executor.shutdown(wait=False)

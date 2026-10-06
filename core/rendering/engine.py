@@ -64,7 +64,11 @@ class PytakumiEngine:
                 device_pixel_ratio=device_pixel_ratio,
             )
         except Exception as exc:
-            logger.debug("Pytakumi render failed: %s", type(exc).__name__)
+            logger.warning(
+                "Image rendering failed at stage=render: %s",
+                type(exc).__name__,
+                exc_info=True,
+            )
             raise RenderingError("🖼️ 图片渲染失败，请查看日志获取详细信息") from exc
         if not isinstance(result, (bytes, bytearray, memoryview)):
             raise RenderingError("图片渲染结果类型无效")
