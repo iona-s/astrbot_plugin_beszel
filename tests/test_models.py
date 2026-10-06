@@ -55,6 +55,14 @@ def test_system_summary_normalizes_optional_text_port(models_data, case: str) ->
     assert summary.port == item["expected"]
 
 
+def test_metrics_keep_optional_snapshot_time(status_data) -> None:
+    metrics = SystemMetrics.model_validate(status_data["metrics"])
+    assert metrics.created == datetime(2026, 8, 15, 12, 59, tzinfo=UTC)
+
+    stats_only = {"stats": status_data["metrics"]["stats"]}
+    assert SystemMetrics.model_validate(stats_only).created is None
+
+
 def test_metrics_require_stats(models_data) -> None:
     with pytest.raises(ValidationError):
         SystemMetrics.model_validate(models_data["metrics_without_stats"])

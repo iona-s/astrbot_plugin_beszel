@@ -376,7 +376,7 @@ class BeszelClient:
             "system_stats",
             params={
                 "filter": self._filter_eq("system", system_id) + " && type = '1m'",
-                "fields": "stats",
+                "fields": "stats,created",
                 "sort": "-created",
             },
             limit=1,

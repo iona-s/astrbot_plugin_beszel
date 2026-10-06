@@ -528,6 +528,15 @@ def extract_analysis_context(
         time_dict["latest_sample_age_seconds"] = max(
             0, int((t_ref - latest_sample_dt).total_seconds())
         )
+    # The agent writes snapshot containers in the same update as the metrics,
+    # so this time also dates the snapshot container values.
+    snapshot_created = detail.metrics.created if detail and detail.metrics else None
+    if snapshot_created is not None:
+        snapshot_dt = _to_utc(snapshot_created)
+        time_dict["snapshot_time"] = snapshot_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+        time_dict["snapshot_age_seconds"] = max(
+            0, int((t_ref - snapshot_dt).total_seconds())
+        )
 
     insufficient_baseline = (
         (cpu_stats.hour_samples > 0 and cpu_stats.baseline_samples < 3)

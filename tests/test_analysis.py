@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, timedelta, timezone
 
 from astrbot_plugin_beszel.core.analysis import (
     DEFAULT_ANALYSIS_PROMPT,
@@ -103,6 +103,8 @@ def test_extract_analysis_context_full_flow(analysis_data) -> None:
     # 1. Alert fields
     assert data["alert"]["source"] == "beszel"
     assert data["alert"]["title"] == "Atlas Gateway CPU threshold exceeded"
+    assert data["time"]["snapshot_time"] == "2026-09-14T00:59:30Z"
+    assert data["time"]["snapshot_age_seconds"] == 30
 
     # 2. Node & Hardware
     assert data["node"]["id"] == "pubatlas0000001"
@@ -273,7 +275,10 @@ def test_extract_analysis_context_progressive_compression() -> None:
     detail_view = SystemDetailView(
         summary=SystemSummary(id="sys-1", name="测试监控节点名称_" * 4, status="up"),
         details=details,
-        metrics=SystemMetrics(stats={"cpu": 80.0, "mp": 70.0, "dp": 50.0}),
+        metrics=SystemMetrics(
+            created=t_ref - timedelta(seconds=30),
+            stats={"cpu": 80.0, "mp": 70.0, "dp": 50.0},
+        ),
         containers=containers,
     )
     notification = NormalizedNotification(
@@ -297,6 +302,7 @@ def test_extract_analysis_context_progressive_compression() -> None:
     data = json.loads(user_json)
     # Must have compressed (truncated = True)
     assert data["truncated"] is True
+    assert data["time"]["snapshot_age_seconds"] == 30
 
 
 def test_extract_analysis_context_disk_metrics() -> None:
@@ -381,6 +387,40 @@ def test_extract_analysis_context_keeps_reference_time_and_sample_age() -> None:
     assert time_info["reference_time"] == "2026-09-14T01:00:00Z"
     assert time_info["latest_sample_time"] == "2026-09-14T00:20:00Z"
     assert time_info["latest_sample_age_seconds"] == 2400
+    assert "snapshot_time" not in time_info
+    assert "snapshot_age_seconds" not in time_info
+
+
+def test_extract_analysis_context_keeps_stale_snapshot_with_its_age() -> None:
+    t_ref = datetime(2026, 9, 14, 1, 0, 0, tzinfo=UTC)
+    summary = SystemSummary(id="sys-1", name="Node 1", status="down")
+    stale = SystemDetailView(
+        summary=summary,
+        metrics=SystemMetrics(
+            created=datetime(2026, 9, 14, 7, 0, 0, tzinfo=timezone(timedelta(hours=8))),
+            stats={"cpu": 50.0},
+        ),
+        containers=[ContainerStats(n="redis", c=10.0, m=256.0)],
+    )
+    undated = SystemDetailView(
+        summary=summary, metrics=SystemMetrics(stats={"cpu": 50.0})
+    )
+
+    stale_json = extract_analysis_context(_edge_notification(), stale, None, t_ref)
+    undated_json = extract_analysis_context(_edge_notification(), undated, None, t_ref)
+
+    assert stale_json is not None
+    stale_data = json.loads(stale_json)
+    assert stale_data["time"]["snapshot_time"] == "2026-09-13T23:00:00Z"
+    assert stale_data["time"]["snapshot_age_seconds"] == 7200
+    # Stale snapshots stay as labelled facts instead of being dropped.
+    assert stale_data["metrics"]["cpu"]["latest_source"] == "snapshot"
+    assert stale_data["containers"][0]["source"] == "snapshot"
+
+    assert undated_json is not None
+    undated_time = json.loads(undated_json)["time"]
+    assert "snapshot_time" not in undated_time
+    assert "snapshot_age_seconds" not in undated_time
 
 
 def test_extract_analysis_context_marks_initial_field_truncation() -> None:

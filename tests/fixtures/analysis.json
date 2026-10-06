@@ -15,6 +15,7 @@
     "memory": 17179869184
   },
   "detail_metrics": {
+    "created": "2026-09-14 00:59:30.000Z",
     "stats": {
       "cpu": 92.5,
       "mp": 85.0,

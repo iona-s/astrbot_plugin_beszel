@@ -355,9 +355,11 @@ class _FakeContext:
         self.outcomes = outcomes or {}
         self.providers = providers if providers is not None else {}
         self.calls: list[tuple[str, Any]] = []
+        self.provider_lookups: list[str] = []
         self.on_send = on_send
 
     def get_using_provider(self, target: str):
+        self.provider_lookups.append(target)
         provider = self.providers.get(target)
         if isinstance(provider, Exception):
             raise provider
@@ -374,6 +376,16 @@ class _FakeContext:
                 raise item
             return bool(item)
         return True
+
+
+class _FakeAsyncProviderContext(_FakeContext):
+    """Fake newer AstrBot context whose provider lookup must be awaited."""
+
+    def get_using_provider(self, target: str):
+        raise AssertionError("deprecated synchronous provider lookup was used")
+
+    async def get_using_provider_async(self, target: str):
+        return super().get_using_provider(target)
 
 
 class _FakeRenderer:
@@ -1444,6 +1456,62 @@ async def test_webhook_analysis_provider_degradations(caplog, monkeypatch) -> No
     assert (
         "analysis delivery failed for target=target:send_exc (request_id=deg-1): "
         "RuntimeError" in caplog.text
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("context_cls", [_FakeContext, _FakeAsyncProviderContext])
+async def test_webhook_analysis_provider_lookup_supports_sync_and_async_contexts(
+    context_cls, caplog, monkeypatch
+) -> None:
+    astrbot_logger = logging.getLogger("astrbot")
+    monkeypatch.setattr(astrbot_logger, "propagate", True)
+    caplog.set_level(logging.DEBUG, logger="astrbot")
+
+    provider = _FakeProvider(completion_text="诊断结果")
+    providers = {
+        "target:no_prov": None,
+        "target:select_exc": ValueError("invalid provider type"),
+        "target:good": provider,
+    }
+    targets = tuple(providers)
+    context = context_cls(providers=providers)
+    detail = SystemDetailView(
+        summary=SystemSummary(id="s1", name="Node", status="up"),
+        metrics=SystemMetrics(stats={"cpu": 80.0}),
+    )
+    delivery = WebhookDelivery(
+        context=context,
+        config=WebhookConfig(enabled=True, target_umos=targets),
+        service=_FakeHistoryService(detail=detail),
+        renderer=_FakeRenderer(),
+    )
+    notification = NormalizedNotification(
+        request_id="lookup-1",
+        source=NotificationSource.BESZEL,
+        title="Title",
+        message="Msg",
+        history_system_id="s1",
+        send_analysis=True,
+    )
+
+    assert await delivery.deliver(notification) == len(targets)
+    if delivery._background_tasks:
+        await asyncio.gather(*list(delivery._background_tasks))
+    await delivery.close()
+
+    assert context.provider_lookups == list(targets)
+    assert len(provider.calls) == 1
+    analysis_targets = [
+        t for t, chain in context.calls if _message_kind(chain) == "analysis"
+    ]
+    assert analysis_targets == ["target:good"]
+    assert (
+        "No chat completion provider available for target=target:no_prov" in caplog.text
+    )
+    assert (
+        "provider selection failed for target=target:select_exc (request_id=lookup-1): "
+        "ValueError" in caplog.text
     )
 
 

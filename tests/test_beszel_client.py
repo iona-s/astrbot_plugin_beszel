@@ -5,6 +5,7 @@ import json
 import logging
 from collections import defaultdict
 from copy import deepcopy
+from datetime import datetime
 from types import SimpleNamespace
 from urllib.parse import urlsplit
 
@@ -233,6 +234,7 @@ async def test_client_authenticates_paginates_and_models_fixture_responses(
         metrics is not None
         and metrics.stats["cpu"] == status_data["metrics"]["stats"]["cpu"]
     )
+    assert metrics.created == datetime.fromisoformat(status_data["metrics"]["created"])
     assert len(containers) == len(status_data["containers"])
     assert len(history) == len(history_data["points"])
     # 4 records in fixture, but records 2 and 3 share the same timestamp -> deduplicated to 3
@@ -257,6 +259,13 @@ async def test_client_authenticates_paginates_and_models_fixture_responses(
         systems_requests[0]["headers"]["Authorization"]
         == client_data["responses"]["auth"]["body"]["token"]
     )
+    metrics_request = next(
+        item
+        for item in session.requests
+        if item["path"].endswith("/collections/system_stats/records")
+        and item["params"]["sort"] == "-created"
+    )
+    assert metrics_request["params"]["fields"] == "stats,created"
 
 
 @pytest.mark.asyncio

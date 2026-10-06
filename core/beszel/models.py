@@ -163,6 +163,7 @@ def _normalize_sample_stats(stats: Any) -> Any:
 
 class SystemMetrics(BaseModel):
     stats: dict[str, Any]
+    created: datetime | None = None
 
     @field_validator("stats", mode="before")
     @classmethod

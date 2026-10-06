@@ -284,7 +284,13 @@ class WebhookDelivery:
         request_id: str,
     ) -> None:
         try:
-            provider = self.context.get_using_provider(target)
+            # AstrBot 4.27.3 deprecates the sync lookup, which may query the
+            # database on the event loop; 4.25 only provides the sync form.
+            provider_getter = getattr(self.context, "get_using_provider_async", None)
+            if provider_getter is not None:
+                provider = await provider_getter(target)
+            else:
+                provider = self.context.get_using_provider(target)
         except Exception as exc:
             logger.warning(
                 "Webhook provider selection failed for target=%s (request_id=%s): %s",
