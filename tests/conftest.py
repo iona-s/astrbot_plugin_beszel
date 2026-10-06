@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import sys
 from pathlib import Path
 from typing import Any
@@ -20,6 +21,26 @@ for import_root in (PLUGIN_PARENT, ASTRBOT_ROOT):
 
 def _load_json(path: Path) -> Any:
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+@pytest.fixture()
+def astrbot_log_records():
+    """Collect records emitted through AstrBot's ``astrbot`` logger.
+
+    AstrBot sets ``propagate = False`` on that logger and pytest only captures
+    non-propagating loggers from 9.1 on, so a dedicated handler keeps the
+    captured records identical across pytest versions.
+    """
+    records: list[logging.LogRecord] = []
+    handler = logging.Handler(logging.DEBUG)
+    handler.emit = records.append
+    logger = logging.getLogger("astrbot")
+    original_level = logger.level
+    logger.addHandler(handler)
+    logger.setLevel(logging.DEBUG)
+    yield records
+    logger.removeHandler(handler)
+    logger.setLevel(original_level)
 
 
 @pytest.fixture(scope="session")

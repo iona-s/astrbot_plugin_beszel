@@ -442,10 +442,8 @@ def test_pytakumi_engine_forwards_device_pixel_ratio() -> None:
 
 
 def test_engine_render_failure_logs_warning_without_markup(
-    caplog, monkeypatch: pytest.MonkeyPatch
+    astrbot_log_records,
 ) -> None:
-    monkeypatch.setattr(logging.getLogger("astrbot"), "propagate", True)
-    caplog.set_level(logging.DEBUG, logger="astrbot")
     engine = PytakumiEngine(
         bundled_font_path=BeszelRenderer._bundled_font_path,
         configured_font_path=None,
@@ -461,12 +459,12 @@ def test_engine_render_failure_logs_warning_without_markup(
     with pytest.raises(RenderingError, match="请查看日志"):
         engine.render(markup, width=800)
 
-    warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+    warnings = [r for r in astrbot_log_records if r.levelno == logging.WARNING]
     assert len(warnings) == 1
     assert "stage=render" in warnings[0].getMessage()
     assert "RuntimeError" in warnings[0].getMessage()
     assert warnings[0].exc_info is not None
-    assert "fixture-render-markup" not in caplog.text
+    assert "fixture-render-markup" not in logging.Formatter().format(warnings[0])
 
 
 def test_engine_converts_native_panics_and_rejects_deep_markup() -> None:
@@ -501,26 +499,24 @@ def test_engine_converts_native_panics_and_rejects_deep_markup() -> None:
 
 
 def test_template_failure_logs_warning_without_context(
-    status_data, rendering_data, caplog, monkeypatch: pytest.MonkeyPatch
+    status_data, rendering_data, astrbot_log_records
 ) -> None:
-    monkeypatch.setattr(logging.getLogger("astrbot"), "propagate", True)
-    caplog.set_level(logging.DEBUG, logger="astrbot")
     renderer = _renderer(rendering_data)
     document = renderer.presentation.build_status(
         SystemDetailView.model_validate(status_data)
     )
     broken = dataclasses.replace(document, metric_cards=None)
-    caplog.clear()
+    astrbot_log_records.clear()
 
     with pytest.raises(RenderingError, match="图片模板生成失败"):
         renderer.templates.render_status(broken)
 
-    warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+    warnings = [r for r in astrbot_log_records if r.levelno == logging.WARNING]
     assert len(warnings) == 1
     assert "stage=template" in warnings[0].getMessage()
     assert "TypeError" in warnings[0].getMessage()
     assert warnings[0].exc_info is not None
-    assert status_data["summary"]["name"] not in caplog.text
+    assert status_data["summary"]["name"] not in logging.Formatter().format(warnings[0])
 
 
 @pytest.mark.asyncio
