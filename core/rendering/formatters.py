@@ -28,13 +28,13 @@ def percent(value: object) -> str:
     return "N/A" if numeric is None else f"{numeric:.1f}%"
 
 
-def bytes_iec(value: object) -> str:
+def format_bytes(value: object) -> str:
     current = safe_float(value)
     if current is None:
         return "N/A"
-    units = ("B", "KiB", "MiB", "GiB", "TiB")
+    units = ("B", "KB", "MB", "GB", "TB")
     index = 0
-    while abs(current) >= 1024 and index < len(units) - 1:
+    while abs(current) >= 1000 and index < len(units) - 1:
         current /= 1024
         index += 1
     return f"{current:.1f} {units[index]}"
@@ -66,20 +66,20 @@ def gb_to_bytes(value: float) -> float:
     return value * (1024**3)
 
 
-def gb_iec(value: object) -> str:
+def format_gb(value: object) -> str:
     gb = safe_float(value)
-    return "N/A" if gb is None else bytes_iec(gb_to_bytes(gb))
+    return "N/A" if gb is None else format_bytes(gb_to_bytes(gb))
 
 
-def mb_iec(value: object) -> str:
+def format_mb(value: object) -> str:
     mb = safe_float(value)
-    return "N/A" if mb is None else bytes_iec(mb * (1024**2))
+    return "N/A" if mb is None else format_bytes(mb * (1024**2))
 
 
 def format_bandwidth(value: object) -> str:
     scalar = safe_float(value)
     if scalar is not None:
-        return f"{bytes_iec(scalar)}/s"
+        return f"{format_bytes(scalar)}/s"
     return "N/A"
 
 

@@ -17,11 +17,11 @@ from ..beszel.models import (
 )
 from ..formatters import StatusState, status_state
 from .formatters import (
-    bytes_iec,
     format_bandwidth,
-    gb_iec,
+    format_bytes,
+    format_gb,
+    format_mb,
     gb_to_bytes,
-    mb_iec,
     percent,
     safe_float,
     uptime_cn,
@@ -190,7 +190,7 @@ class PresentationBuilder:
                 ContainerRow(
                     name=c.name,
                     cpu_text=percent(c.cpu),
-                    memory_text=mb_iec(c.memory),
+                    memory_text=format_mb(c.memory),
                 )
             )
 
@@ -233,7 +233,7 @@ class PresentationBuilder:
         os_str = details.os if details and details.os else ""
         cpu_str = details.cpu if details and details.cpu else ""
         memory_str = (
-            bytes_iec(details.memory)
+            format_bytes(details.memory)
             if (details and details.memory is not None)
             else ""
         )
@@ -421,8 +421,8 @@ class PresentationBuilder:
                             label=f"{gpu.name} 显存",
                             value=(
                                 f"{percent(memory_percent)} "
-                                f"({mb_iec(gpu.memory_used_mib)} / "
-                                f"{mb_iec(gpu.memory_total_mib)})"
+                                f"({format_mb(gpu.memory_used_mib)} / "
+                                f"{format_mb(gpu.memory_total_mib)})"
                             ),
                         )
                     )
@@ -512,7 +512,7 @@ class PresentationBuilder:
                     "核心 / 线程",
                     f"{details.cores or 'N/A'} 核 / {details.threads or 'N/A'} 线程",
                 ),
-                ("物理总内存", bytes_iec(details.memory)),
+                ("物理总内存", format_bytes(details.memory)),
                 (
                     "Agent 版本",
                     f"v{str(summary.info['v']).lstrip('v')}"
@@ -550,8 +550,8 @@ class PresentationBuilder:
             value = (
                 f"↓ {format_bandwidth(raw_values[1])}"
                 f" · ↑ {format_bandwidth(raw_values[0])}"
-                f" · 总下行: {bytes_iec(raw_values[3])}"
-                f" · 总上行: {bytes_iec(raw_values[2])}"
+                f" · 总下行: {format_bytes(raw_values[3])}"
+                f" · 总上行: {format_bytes(raw_values[2])}"
             )
             rows.append(DetailRow(label=f"网卡: {name}", value=value))
         return rows
@@ -1186,8 +1186,8 @@ class PresentationBuilder:
     @staticmethod
     def _capacity_text(used: float | None, total: float | None) -> str:
         if used is not None and total is not None and total > 0:
-            return f"{gb_iec(used)} / {gb_iec(total)}"
-        return gb_iec(used) if used is not None else ""
+            return f"{format_gb(used)} / {format_gb(total)}"
+        return format_gb(used) if used is not None else ""
 
     @staticmethod
     def _address(host: str, port: str | None) -> str:
@@ -1316,7 +1316,7 @@ class PresentationBuilder:
                     _DiskMetric(
                         str(name),
                         used / total * 100.0,
-                        f"{gb_iec(used)} / {gb_iec(total)}",
+                        f"{format_gb(used)} / {format_gb(total)}",
                     )
                 )
         return tuple(result)

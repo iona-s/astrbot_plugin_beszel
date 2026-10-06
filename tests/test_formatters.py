@@ -10,6 +10,12 @@ from astrbot_plugin_beszel.core.formatters import (
     resolve_timezone,
     status_state,
 )
+from astrbot_plugin_beszel.core.rendering.formatters import (
+    format_bandwidth,
+    format_bytes,
+    format_gb,
+    format_mb,
+)
 
 
 def test_resolve_timezone_uses_named_zone_or_host_local_time(rendering_data) -> None:
@@ -42,3 +48,14 @@ def test_host_local_time_is_resolved_for_each_instant(overview_data) -> None:
     assert format_datetime(offline.updated, None) in format_system_list(
         systems, timezone=None
     )
+
+
+def test_byte_values_use_hub_style_units() -> None:
+    assert format_bytes(512) == "512.0 B"
+    assert format_bytes(1000) == "1.0 KB"
+    assert format_bytes(1.5 * 1024**3) == "1.5 GB"
+    assert format_gb(64) == "64.0 GB"
+    assert format_gb(2048) == "2.0 TB"
+    assert format_mb(768) == "768.0 MB"
+    assert format_bandwidth(15.1 * 1024**2) == "15.1 MB/s"
+    assert format_bytes(None) == "N/A"
