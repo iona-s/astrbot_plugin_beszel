@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 import pytest
 from astrbot_plugin_beszel.core.beszel.models import (
     ContainerHistoryMetrics,
@@ -173,6 +175,18 @@ async def test_detail_and_history_report_system_deleted_after_selection(
         await service.get_system_detail(system_id)
     with pytest.raises(SystemNotFoundError):
         await service.get_system_history(system_id)
+
+
+@pytest.mark.asyncio
+async def test_history_window_ends_at_query_time(fixture_client, query_data) -> None:
+    service = QueryService(fixture_client, default_history_range=HistoryRange.ONE_HOUR)
+
+    before = datetime.now(UTC)
+    history = await service.get_system_history(query_data["detail_system_id"])
+    after = datetime.now(UTC)
+
+    assert history.window_end is not None
+    assert before <= history.window_end <= after
 
 
 @pytest.mark.asyncio

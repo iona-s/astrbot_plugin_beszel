@@ -147,6 +147,8 @@ class HistoryChartCard:
     axis_min: float
     axis_max: float
     extra_series_count: int = 0
+    time_start: datetime | None = None
+    time_end: datetime | None = None
 
 
 @dataclass(frozen=True, slots=True)

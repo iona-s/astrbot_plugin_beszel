@@ -245,3 +245,4 @@ class SystemHistoryView(BaseModel):
     points: list[SystemHistoryPoint] = Field(default_factory=list)
     container_points: list[ContainerHistoryPoint] = Field(default_factory=list)
     details: SystemDetails | None = None
+    window_end: datetime | None = None

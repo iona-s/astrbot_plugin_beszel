@@ -31,7 +31,7 @@ class BeszelRenderer:
         *,
         plugin_name: str,
         show_connection_address: bool,
-        display_timezone: tzinfo,
+        display_timezone: tzinfo | None,
         font_path: str | Path | None,
         container_history_threshold: int = 10,
         render_scale: int = 100,

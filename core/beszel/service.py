@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import time
+from datetime import UTC, datetime
 
 from astrbot.api import logger
 
@@ -163,7 +164,8 @@ class QueryService:
             history_range: Requested range; ``None`` or blank uses the default.
 
         Returns:
-            The live summary with system and container history points.
+            The live summary with system and container history points, and the
+            query time that ends the chart window.
 
         Raises:
             InvalidHistoryRangeError: The range is not supported.
@@ -196,6 +198,7 @@ class QueryService:
                 )
                 return None
 
+        window_end = datetime.now(UTC)
         summary, metrics, container_metrics, system_details = await asyncio.gather(
             self.client.get_system(system.id),
             self.client.get_history(system.id, parsed_range),
@@ -226,6 +229,7 @@ class QueryService:
             points=points,
             container_points=container_points,
             details=system_details,
+            window_end=window_end,
         )
 
     @staticmethod

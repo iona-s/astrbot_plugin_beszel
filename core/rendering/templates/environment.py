@@ -47,7 +47,9 @@ class BeszelTemplateRenderer:
     def render_status(self, document: StatusDocument) -> str:
         return self._render(self._status, document=document)
 
-    def render_history(self, document: HistoryDocument, *, timezone: tzinfo) -> str:
+    def render_history(
+        self, document: HistoryDocument, *, timezone: tzinfo | None
+    ) -> str:
         charts = tuple(
             build_chart_view(card, timezone=timezone) for card in document.cards
         )

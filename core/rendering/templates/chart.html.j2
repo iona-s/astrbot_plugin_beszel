@@ -25,6 +25,9 @@
       {% for line in view.geometry.grid_lines %}
       <line class="chart-grid-line" x1="{{ view.geometry.plot_left }}" y1="{{ line.y | coord }}" x2="{{ view.geometry.plot_right }}" y2="{{ line.y | coord }}" stroke="#e2e8f0" stroke-width="1" stroke-dasharray="{% if not loop.last %}3 3{% else %}0{% endif %}" />
       {% endfor %}
+      {% for x in view.geometry.tick_marks %}
+      <line class="chart-tick-line" x1="{{ x | coord }}" y1="{{ view.geometry.plot_bottom }}" x2="{{ x | coord }}" y2="{{ view.geometry.height }}" stroke="#94a3b8" stroke-width="1" />
+      {% endfor %}
       {% for segment in view.geometry.segments %}
         {% if segment.area_path %}<path class="chart-area" d="{{ segment.area_path }}" fill="url(#{{ segment.grad_id }})" />{% endif %}
         {% if segment.line_path %}<path class="chart-line" d="{{ segment.line_path }}" fill="none" stroke="{{ segment.color | color_css }}" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" />{% endif %}
@@ -34,7 +37,7 @@
   </div>
   <div class="chart-x-axis" style="margin-left: {{ view.geometry.y_axis_width }}px; width: {{ view.geometry.width }}px">
     {% for tick in view.geometry.ticks %}
-    <span class="chart-tick-label chart-tick-{{ tick.anchor }}" style="margin-left: {{ tick.margin_left | coord }}px">{{ tick.label }}</span>
+    <span class="chart-tick-label" style="margin-left: {{ tick.margin_left | coord }}px">{{ tick.label }}</span>
     {% endfor %}
   </div>
   {% else %}

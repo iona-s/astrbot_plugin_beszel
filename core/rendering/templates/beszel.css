@@ -529,16 +529,14 @@ body {
 }
 .chart-tick-label {
   flex: none;
-  width: 60px;
+  width: 32px;
   font-size: 11px;
   line-height: 12px;
   color: #334155;
+  text-align: center;
   white-space: nowrap;
   overflow: hidden;
 }
-.chart-tick-start { text-align: left; }
-.chart-tick-middle { text-align: center; }
-.chart-tick-end { text-align: right; }
 .chart-line {
   fill: none;
   stroke-width: 1px;

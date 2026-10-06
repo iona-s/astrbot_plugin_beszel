@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, tzinfo
 from typing import Any
 
@@ -98,7 +98,7 @@ class PresentationBuilder:
         *,
         plugin_name: str,
         show_connection_address: bool,
-        display_timezone: tzinfo,
+        display_timezone: tzinfo | None,
         container_history_threshold: int = 10,
     ) -> None:
         self.plugin_name = plugin_name
@@ -274,6 +274,20 @@ class PresentationBuilder:
                 container_mem_card=container_mem_card,
             )
         )
+        # Like the Hub, every card spans the requested range up to the query
+        # time, so late or stopped series keep their place on a shared axis.
+        # Samples outside that range widen the window instead of being clipped.
+        sample_times = [point.created for point in points] + [
+            point.created for point in view.container_points
+        ]
+        window_end = view.window_end or max(sample_times, default=None)
+        if window_end is not None:
+            time_start = min([window_end - view.range.duration, *sample_times])
+            time_end = max([window_end, *sample_times])
+            cards = [
+                replace(card, time_start=time_start, time_end=time_end)
+                for card in cards
+            ]
         return HistoryDocument(
             header=header,
             cards=tuple(cards),

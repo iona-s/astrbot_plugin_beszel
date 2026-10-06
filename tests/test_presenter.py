@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from astrbot_plugin_beszel.core.beszel.models import (
@@ -131,6 +131,48 @@ def test_history_presentation_preserves_idle_middle_sample_without_false_gap(
         assert series.points[1].value == 0.0
         assert len(series.segments) == 1
         assert len(series.segments[0]) == 3
+
+
+def test_history_cards_share_the_requested_window(
+    history_data, container_history_data, rendering_data
+) -> None:
+    view = SystemHistoryView.model_validate(history_data)
+    view.container_points = [
+        ContainerHistoryPoint(created=m.created, stats=m.stats)
+        for raw in container_history_data["records"]
+        if (m := ContainerHistoryMetrics.model_validate(raw)).created is not None
+    ]
+    first_sample = view.points[0].created
+    last_sample = view.points[-1].created
+    window_end = last_sample + timedelta(minutes=30)
+    window_start = window_end - view.range.duration
+    builder = _builder(rendering_data)
+
+    in_range = view.model_copy(
+        update={
+            "points": [p for p in view.points if p.created >= window_start],
+            "container_points": [],
+            "window_end": window_end,
+        }
+    )
+    assert {
+        (card.time_start, card.time_end)
+        for card in builder.build_history(in_range).cards
+    } == {(window_start, window_end)}
+
+    # Samples older than the range widen the window instead of being clipped.
+    widened = view.model_copy(update={"window_end": window_end})
+    document = builder.build_history(widened)
+    assert any(card.title == "容器 CPU 使用率" for card in document.cards)
+    assert {(card.time_start, card.time_end) for card in document.cards} == {
+        (first_sample, window_end)
+    }
+
+    # Without a query time the newest sample ends the window.
+    fallback = builder.build_history(view)
+    assert {(card.time_start, card.time_end) for card in fallback.cards} == {
+        (last_sample - view.range.duration, last_sample)
+    }
 
 
 def test_container_history_cards_generation_and_threshold_filtering(

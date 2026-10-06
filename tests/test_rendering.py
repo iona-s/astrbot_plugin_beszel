@@ -5,7 +5,8 @@ import dataclasses
 import logging
 import threading
 from concurrent.futures import ThreadPoolExecutor
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, timedelta, tzinfo
+from itertools import pairwise
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -31,6 +32,7 @@ from astrbot_plugin_beszel.core.rendering.models import (
 from astrbot_plugin_beszel.core.rendering.renderer import BeszelRenderer
 from astrbot_plugin_beszel.core.rendering.templates.charts import (
     TICK_LABEL_WIDTH,
+    TICK_MIN_GAP,
     build_chart_view,
 )
 from astrbot_plugin_beszel.core.rendering.templates.environment import (
@@ -241,68 +243,161 @@ def test_chart_geometry_data_gap_isolated_single_point() -> None:
     assert '<path class="chart-line"' in markup
 
 
-def test_chart_multi_series_ticks_cover_full_time_span_and_stay_in_bounds() -> None:
-    now = datetime(2026, 9, 6, 12, 0, tzinfo=UTC)
-    end_time = now + timedelta(hours=1)
+def _axis_times(
+    start: datetime, end: datetime, timezone: tzinfo | None
+) -> tuple[list[datetime], list[datetime]]:
+    """Lay out one card over a window and return its label and tick mark times.
 
-    # Series A: sorted first (e.g. higher peak metric), but only has 1 sample at the end
-    point_a = ChartPoint(created=end_time, value=99.0)
-    series_a = ChartSeries(
-        name="container-a",
-        color=(255, 0, 0),
-        points=(point_a,),
-        segments=((point_a,),),
-        current_value=99.0,
+    Also asserts the invariants every axis keeps: label boxes stay inside the
+    plot, keep ``TICK_MIN_GAP`` between them, name the time at their center,
+    and sit on a tick mark.
+    """
+    points = (
+        ChartPoint(created=start, value=10.0),
+        ChartPoint(created=end, value=20.0),
     )
-
-    # Series B: runs across the full 1-hour range with irregular sampling
-    points_b = tuple(
-        ChartPoint(created=now + timedelta(minutes=m), value=20.0)
-        for m in [0, 1, 2, 30, 60]
-    )
-    series_b = ChartSeries(
-        name="container-b",
-        color=(0, 128, 255),
-        points=points_b,
-        segments=(points_b,),
-        current_value=20.0,
-    )
-
     card = HistoryChartCard(
-        title="多序列时间轴测试",
+        title="刻度测试",
         subtitle="",
         unit=ChartUnit.PERCENT,
-        series=(series_a, series_b),
+        series=(
+            ChartSeries(
+                name="cpu",
+                color=(0, 128, 255),
+                points=points,
+                segments=(points,),
+                current_value=20.0,
+            ),
+        ),
         axis_min=0.0,
         axis_max=100.0,
+        time_start=start,
+        time_end=end,
+    )
+    view = build_chart_view(card, timezone=timezone)
+    assert view.geometry is not None
+    geometry = view.geometry
+    plot_width = geometry.plot_right - geometry.plot_left
+    span = (end - start).total_seconds()
+    label_format = "%m-%d" if span > 2 * 86400 else "%H:%M"
+
+    def local_at(x: float) -> datetime:
+        offset = (x - geometry.plot_left) / plot_width
+        return (start + timedelta(seconds=round(offset * span))).astimezone(timezone)
+
+    marks = [local_at(x) for x in geometry.tick_marks]
+    labels: list[datetime] = []
+    right = 0.0
+    for tick in geometry.ticks:
+        assert tick.margin_left >= (TICK_MIN_GAP if labels else 0)
+        left = right + tick.margin_left
+        right = left + TICK_LABEL_WIDTH
+        assert left >= geometry.plot_left - 1e-6
+        assert right <= geometry.plot_right + 1e-6
+        local = local_at(left + TICK_LABEL_WIDTH / 2)
+        assert tick.label == local.strftime(label_format)
+        assert local in marks
+        labels.append(local)
+    return labels, marks
+
+
+def _steps(times: list[datetime]) -> set[timedelta]:
+    return {later - earlier for earlier, later in pairwise(times)}
+
+
+def test_chart_ticks_use_the_hub_interval_and_round_label_steps() -> None:
+    end = datetime(2026, 8, 15, 13, 37, 12, tzinfo=UTC)
+    # Marks use the Hub's d3 interval; labels use the smallest round multiple
+    # that fits the narrower static card.
+    expected = {
+        timedelta(hours=1): (timedelta(minutes=5), timedelta(minutes=10)),
+        timedelta(hours=12): (timedelta(hours=1), timedelta(hours=2)),
+        timedelta(days=1): (timedelta(hours=3), timedelta(hours=3)),
+        timedelta(weeks=1): (timedelta(days=1), timedelta(days=1)),
+    }
+    for span, (mark_step, label_step) in expected.items():
+        labels, marks = _axis_times(end - span, end, UTC)
+        assert _steps(marks) == {mark_step}
+        assert _steps(labels) == {label_step}
+        assert all(t.timestamp() % label_step.total_seconds() == 0 for t in labels)
+
+    labels, marks = _axis_times(end - timedelta(hours=1), end, UTC)
+    assert (marks[0], marks[-1]) == (
+        datetime(2026, 8, 15, 12, 40, tzinfo=UTC),
+        datetime(2026, 8, 15, 13, 35, tzinfo=UTC),
+    )
+    assert (labels[0], labels[-1]) == (
+        datetime(2026, 8, 15, 12, 40, tzinfo=UTC),
+        datetime(2026, 8, 15, 13, 30, tzinfo=UTC),
+    )
+
+    month_labels, month_marks = _axis_times(end - timedelta(days=30), end, UTC)
+    assert _steps(month_marks) == {timedelta(days=1)}
+    assert len(month_labels) < len(month_marks)
+    assert all((t.hour, t.minute) == (0, 0) for t in month_labels)
+
+
+def test_chart_ticks_align_to_the_display_timezone() -> None:
+    end = datetime(2026, 8, 15, 13, 37, 12, tzinfo=UTC)
+
+    # A half-hour offset puts local round hours on UTC half hours.
+    kolkata, _ = _axis_times(end - timedelta(days=1), end, ZoneInfo("Asia/Kolkata"))
+    assert len(kolkata) >= 3
+    assert all(time.minute == 0 and time.hour % 3 == 0 for time in kolkata)
+    assert all(time.astimezone(UTC).minute == 30 for time in kolkata)
+
+    host, _ = _axis_times(end - timedelta(hours=1), end, None)
+    assert len(host) >= 3
+    assert all(time.minute % 10 == 0 for time in host)
+
+
+def test_chart_x_positions_follow_the_card_window() -> None:
+    start = datetime(2026, 9, 6, 12, 0, tzinfo=UTC)
+    late_points = (
+        ChartPoint(created=start + timedelta(minutes=50), value=10.0),
+        ChartPoint(created=start + timedelta(minutes=60), value=20.0),
+    )
+    stopped_points = (
+        ChartPoint(created=start, value=30.0),
+        ChartPoint(created=start + timedelta(minutes=30), value=40.0),
+    )
+    card = HistoryChartCard(
+        title="窗口位置测试",
+        subtitle="",
+        unit=ChartUnit.PERCENT,
+        series=tuple(
+            ChartSeries(
+                name=name,
+                color=(0, 128, 255),
+                points=points,
+                segments=(points,),
+                current_value=points[-1].value,
+            )
+            for name, points in (("late", late_points), ("stopped", stopped_points))
+        ),
+        axis_min=0.0,
+        axis_max=100.0,
+        time_start=start,
+        time_end=start + timedelta(hours=1),
     )
 
     view = build_chart_view(card, timezone=UTC)
     assert view.geometry is not None
-    ticks = view.geometry.ticks
-    assert len(ticks) >= 2
+    geometry = view.geometry
+    plot_width = geometry.plot_right - geometry.plot_left
+    # Two-point segments are straight "M x0 y0 L x1 y1" paths.
+    late_path, stopped_path = (
+        segment.line_path.split() for segment in geometry.segments
+    )
 
-    curr = 0.0
-    boxes: list[tuple[float, float, str, str]] = []
-    for t in ticks:
-        left = curr + t.margin_left
-        right = left + TICK_LABEL_WIDTH
-        boxes.append((left, right, t.label, t.anchor))
-        curr = right
-
-    # 1. Start and end ticks represent the global time range, not series A's isolated point
-    assert boxes[0][2] == "12:00"
-    assert boxes[0][3] == "start"
-    assert boxes[-1][2] == "13:00"
-    assert boxes[-1][3] == "end"
-
-    # 2. All tick boxes stay within plot_left and plot_right bounds
-    assert boxes[0][0] >= view.geometry.plot_left - 1e-6
-    assert boxes[-1][1] <= view.geometry.plot_right + 1e-6
-
-    # 3. No adjacent tick boxes overlap
-    for k in range(len(boxes) - 1):
-        assert boxes[k + 1][0] >= boxes[k][1] - 1e-6
+    assert float(late_path[1]) == pytest.approx(
+        geometry.plot_left + plot_width * 50 / 60, abs=0.01
+    )
+    assert float(late_path[4]) == pytest.approx(geometry.plot_right, abs=0.01)
+    assert float(stopped_path[1]) == pytest.approx(geometry.plot_left, abs=0.01)
+    assert float(stopped_path[4]) == pytest.approx(
+        geometry.plot_left + plot_width / 2, abs=0.01
+    )
 
 
 def test_pytakumi_engine_forwards_device_pixel_ratio() -> None:

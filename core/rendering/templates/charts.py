@@ -8,9 +8,10 @@ beside and below the SVG. This module only computes coordinates and paths.
 from __future__ import annotations
 
 import math
+from bisect import bisect_right
 from collections.abc import Iterable
 from dataclasses import dataclass
-from datetime import UTC, datetime, tzinfo
+from datetime import UTC, datetime, timedelta, tzinfo
 
 from ..formatters import format_chart_value
 from ..models import ChartPoint, ChartUnit, Color, HistoryChartCard
@@ -32,7 +33,29 @@ Y_AXIS_MIN = 24
 Y_AXIS_MAX = 64
 
 # Fixed tick label box width; must match .chart-tick-label in beszel.css.
-TICK_LABEL_WIDTH = 60
+TICK_LABEL_WIDTH = 32
+# Minimum space between tick labels, matching the Hub's recharts ``minTickGap``.
+TICK_MIN_GAP = 12
+# d3 timeTicks intervals from one minute to two days: (unit, step, seconds).
+TICK_INTERVALS = (
+    ("minute", 1, 60),
+    ("minute", 5, 5 * 60),
+    ("minute", 15, 15 * 60),
+    ("minute", 30, 30 * 60),
+    ("hour", 1, 3600),
+    ("hour", 3, 3 * 3600),
+    ("hour", 6, 6 * 3600),
+    ("hour", 12, 12 * 3600),
+    ("day", 1, 86400),
+    ("day", 2, 2 * 86400),
+)
+# Label steps per unit that stay aligned with the next larger calendar unit.
+LABEL_STEPS = {
+    "minute": (1, 5, 10, 15, 20, 30, 60),
+    "hour": (1, 2, 3, 4, 6, 8, 12, 24),
+    "day": (1, 2, 3, 4, 5, 7, 10, 15),
+}
+UNIT_SECONDS = {"minute": 60, "hour": 3600, "day": 86400}
 
 
 @dataclass(frozen=True, slots=True)
@@ -59,7 +82,6 @@ class ChartSegmentGeometry:
 @dataclass(frozen=True, slots=True)
 class ChartTick:
     label: str
-    anchor: str
     margin_left: float
 
 
@@ -70,9 +92,11 @@ class ChartGeometry:
     y_axis_width: int
     plot_left: int
     plot_right: int
+    plot_bottom: int
     grid_lines: tuple[ChartGridLine, ...]
     segments: tuple[ChartSegmentGeometry, ...]
     ticks: tuple[ChartTick, ...]
+    tick_marks: tuple[float, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -82,8 +106,22 @@ class ChartTemplateView:
     geometry: ChartGeometry | None
 
 
-def build_chart_view(card: HistoryChartCard, *, timezone: tzinfo) -> ChartTemplateView:
-    """Prepare numeric SVG geometry without generating markup."""
+def build_chart_view(
+    card: HistoryChartCard, *, timezone: tzinfo | None
+) -> ChartTemplateView:
+    """Prepare numeric SVG geometry without generating markup.
+
+    The x axis spans the card's time window, so a series that starts late or
+    stops early only occupies its part of the plot. A card without a window
+    falls back to the span of its own points.
+
+    Args:
+        card: Presentation card to lay out.
+        timezone: Display timezone for tick labels; ``None`` is host local time.
+
+    Returns:
+        The card with its geometry, or without geometry when it has no points.
+    """
     current = card.series[0].current_value if card.series else None
     points = [point for series in card.series for point in series.points]
     if not points:
@@ -93,9 +131,17 @@ def build_chart_view(card: HistoryChartCard, *, timezone: tzinfo) -> ChartTempla
             geometry=None,
         )
 
-    first_timestamp = min(_timestamp(point.created) for point in points)
-    last_timestamp = max(_timestamp(point.created) for point in points)
-    time_span = max(1.0, last_timestamp - first_timestamp)
+    window_start = (
+        _timestamp(card.time_start)
+        if card.time_start is not None
+        else min(_timestamp(point.created) for point in points)
+    )
+    window_end = (
+        _timestamp(card.time_end)
+        if card.time_end is not None
+        else max(_timestamp(point.created) for point in points)
+    )
+    time_span = max(1.0, window_end - window_start)
     plot_height = PLOT_BOTTOM - PLOT_TOP
 
     grid_lines = tuple(
@@ -118,7 +164,7 @@ def build_chart_view(card: HistoryChartCard, *, timezone: tzinfo) -> ChartTempla
             coords = [
                 _point_xy(
                     point,
-                    first_timestamp,
+                    window_start,
                     time_span,
                     card.axis_min,
                     card.axis_max,
@@ -148,10 +194,8 @@ def build_chart_view(card: HistoryChartCard, *, timezone: tzinfo) -> ChartTempla
                 )
             )
 
-    tick_points = tuple(sorted(points, key=lambda point: point.created))
-    ticks = _ticks(
-        tick_points,
-        first_timestamp=first_timestamp,
+    ticks, tick_marks = _ticks(
+        window_start=window_start,
         time_span=time_span,
         plot_width=plot_width,
         timezone=timezone,
@@ -166,9 +210,11 @@ def build_chart_view(card: HistoryChartCard, *, timezone: tzinfo) -> ChartTempla
             y_axis_width=y_axis_width,
             plot_left=PLOT_LEFT,
             plot_right=width - PLOT_RIGHT_INSET,
+            plot_bottom=PLOT_BOTTOM,
             grid_lines=grid_lines,
             segments=tuple(segments),
             ticks=ticks,
+            tick_marks=tick_marks,
         ),
     )
 
@@ -201,109 +247,113 @@ def _estimate_width(text: str) -> float:
 
 
 def _ticks(
-    points: tuple[ChartPoint, ...],
     *,
-    first_timestamp: float,
+    window_start: float,
     time_span: float,
     plot_width: int,
-    timezone: tzinfo,
-) -> tuple[ChartTick, ...]:
-    """Place up to five tick labels at their data x positions.
+    timezone: tzinfo | None,
+) -> tuple[tuple[ChartTick, ...], tuple[float, ...]]:
+    """Place ticks on round local times, like the Hub's d3 ``timeTicks``.
 
-    Each fixed-width box carries the ``margin_left`` gap from the previous
+    The Hub asks for 12 ticks on spans up to two days, 7 on a week and 30 on a
+    month; the interval closest by ratio to ``span / count`` wins, and ticks
+    fall where the local minute, hour, or day of month is a multiple of its
+    step. Every tick gets a mark. A static card is narrower than the Hub chart,
+    so labels use the smallest round multiple of the step that keeps
+    ``TICK_MIN_GAP`` between them (e.g. a 10-minute label on every second
+    5-minute mark); labels crossing the plot edges are dropped, and irregular
+    gaps such as month ends drop the earlier of two crowded labels. Each
+    fixed-width label box carries the ``margin_left`` gap from the previous
     box's right edge, reproducing absolute positions in normal flow.
+
+    Returns:
+        The labels in layout order and the x position of every tick mark.
     """
-    if not points:
-        return ()
-
-    # Deduplicate points by timestamp to avoid collision on duplicate sample times
-    unique_points: list[ChartPoint] = []
-    seen_ts: set[float] = set()
-    for pt in points:
-        ts = _timestamp(pt.created)
-        if ts not in seen_ts:
-            seen_ts.add(ts)
-            unique_points.append(pt)
-
-    tick_count = min(5, len(unique_points))
-    if tick_count == 0:
-        return ()
-
-    if tick_count == 1:
-        pt = unique_points[0]
-        x = PLOT_LEFT + (
-            (_timestamp(pt.created) - first_timestamp) / time_span * plot_width
-        )
-        return (
-            ChartTick(
-                label=_time_label(pt.created, timezone, time_span=time_span),
-                anchor="start",
-                margin_left=x,
-            ),
-        )
-
-    # First tick: left-aligned to first data point
-    pt_first = unique_points[0]
-    x_first = PLOT_LEFT + (
-        (_timestamp(pt_first.created) - first_timestamp) / time_span * plot_width
+    window_end = window_start + time_span
+    count = 30 if time_span > 14 * 86400 else 7 if time_span > 2 * 86400 else 12
+    target = time_span / count
+    index = min(
+        max(bisect_right(TICK_INTERVALS, target, key=lambda item: item[2]), 1),
+        len(TICK_INTERVALS) - 1,
     )
-    first_tick = ChartTick(
-        label=_time_label(pt_first.created, timezone, time_span=time_span),
-        anchor="start",
-        margin_left=x_first,
+    if target / TICK_INTERVALS[index - 1][2] < TICK_INTERVALS[index][2] / target:
+        index -= 1
+    unit, step, _ = TICK_INTERVALS[index]
+    min_spacing = (TICK_LABEL_WIDTH + TICK_MIN_GAP) * time_span / plot_width
+    label_step = next(
+        (
+            candidate
+            for candidate in LABEL_STEPS[unit]
+            if candidate % step == 0 and candidate * UNIT_SECONDS[unit] >= min_spacing
+        ),
+        LABEL_STEPS[unit][-1],
     )
-    first_right = x_first + TICK_LABEL_WIDTH
 
-    # Last tick: right-aligned to last data point
-    pt_last = unique_points[-1]
-    x_last = PLOT_LEFT + (
-        (_timestamp(pt_last.created) - first_timestamp) / time_span * plot_width
+    wall = (
+        datetime.fromtimestamp(window_start, UTC)
+        .astimezone(timezone)
+        .replace(tzinfo=None, second=0, microsecond=0)
     )
-    last_left = x_last - TICK_LABEL_WIDTH
-    last_right = x_last
-    last_label = _time_label(pt_last.created, timezone, time_span=time_span)
-
-    accepted: list[tuple[ChartTick, float, float]] = [
-        (first_tick, x_first, first_right)
-    ]
-    current_right = first_right
-
-    # Intermediate ticks: center-aligned, added only if they fit between
-    # the preceding accepted tick and the last tick without overlap
-    if tick_count > 2 and last_left >= first_right:
-        for index in range(1, tick_count - 1):
-            point_index = round(
-                index * (len(unique_points) - 1) / max(1, tick_count - 1)
-            )
-            pt = unique_points[point_index]
-            x = PLOT_LEFT + (
-                (_timestamp(pt.created) - first_timestamp) / time_span * plot_width
-            )
-            cand_left = x - TICK_LABEL_WIDTH / 2
-            cand_right = cand_left + TICK_LABEL_WIDTH
-            if (
-                cand_left >= current_right
-                and cand_right <= last_left
-                and cand_left >= PLOT_LEFT
-            ):
-                tick = ChartTick(
-                    label=_time_label(pt.created, timezone, time_span=time_span),
-                    anchor="middle",
-                    margin_left=max(0.0, cand_left - current_right),
-                )
-                accepted.append((tick, cand_left, cand_right))
-                current_right = cand_right
-
-    # Always include the last tick if it does not overlap the preceding tick
-    if last_left >= current_right:
-        last_tick = ChartTick(
-            label=last_label,
-            anchor="end",
-            margin_left=max(0.0, last_left - current_right),
+    if unit != "minute":
+        wall = wall.replace(minute=0)
+    if unit == "day":
+        wall = wall.replace(hour=0)
+    end_wall = (
+        datetime.fromtimestamp(window_end, UTC)
+        .astimezone(timezone)
+        .replace(tzinfo=None)
+    )
+    increment = {
+        "minute": timedelta(minutes=1),
+        "hour": timedelta(hours=1),
+        "day": timedelta(days=1),
+    }[unit]
+    plot_right = PLOT_LEFT + plot_width
+    boxes: list[tuple[float, str]] = []
+    marks: list[float] = []
+    previous = -math.inf
+    while wall <= end_wall:
+        field = (
+            wall.minute
+            if unit == "minute"
+            else wall.hour
+            if unit == "hour"
+            else wall.day - 1
         )
-        accepted.append((last_tick, last_left, last_right))
+        # A naive wall time is host local time for timestamp(), so a None
+        # timezone applies the host rules of each tick's own instant. Wall times
+        # inside a DST gap resolve to instants that later wall times repeat.
+        instant = wall.replace(tzinfo=timezone).timestamp()
+        wall += increment
+        if (
+            field % step
+            or not window_start <= instant <= window_end
+            or instant <= previous
+        ):
+            continue
+        previous = instant
+        x = PLOT_LEFT + (instant - window_start) / time_span * plot_width
+        marks.append(x)
+        left = x - TICK_LABEL_WIDTH / 2
+        if (
+            field % label_step == 0
+            and left >= PLOT_LEFT
+            and left + TICK_LABEL_WIDTH <= plot_right
+        ):
+            boxes.append((left, _time_label(instant, timezone, time_span)))
 
-    return tuple(t[0] for t in accepted)
+    kept: list[tuple[float, str]] = []
+    for box in reversed(boxes):
+        if not kept or kept[-1][0] - box[0] >= TICK_LABEL_WIDTH + TICK_MIN_GAP:
+            kept.append(box)
+    kept.reverse()
+
+    ticks: list[ChartTick] = []
+    current_right = 0.0
+    for left, label in kept:
+        ticks.append(ChartTick(label=label, margin_left=left - current_right))
+        current_right = left + TICK_LABEL_WIDTH
+    return tuple(ticks), tuple(marks)
 
 
 def _timestamp(value: datetime) -> float:
@@ -312,28 +362,21 @@ def _timestamp(value: datetime) -> float:
     return value.timestamp()
 
 
-def _time_label(value: datetime, timezone: tzinfo, time_span: float) -> str:
-    if value.tzinfo is None or value.tzinfo.utcoffset(value) is None:
-        value = value.replace(tzinfo=UTC)
-    local_dt = value.astimezone(timezone)
-    if time_span > 86400 * 2:
-        return local_dt.strftime("%m-%d")
-    return local_dt.strftime("%H:%M")
+def _time_label(timestamp: float, timezone: tzinfo | None, time_span: float) -> str:
+    local_dt = datetime.fromtimestamp(timestamp, UTC).astimezone(timezone)
+    return local_dt.strftime("%m-%d" if time_span > 86400 * 2 else "%H:%M")
 
 
 def _point_xy(
     point: ChartPoint,
-    first_timestamp: float,
+    window_start: float,
     time_span: float,
     axis_min: float,
     axis_max: float,
     plot_width: int,
     plot_height: float,
 ) -> tuple[float, float]:
-    x = (
-        PLOT_LEFT
-        + (_timestamp(point.created) - first_timestamp) / time_span * plot_width
-    )
+    x = PLOT_LEFT + (_timestamp(point.created) - window_start) / time_span * plot_width
     ratio = (
         (point.value - axis_min) / (axis_max - axis_min) if axis_max > axis_min else 0.0
     )
