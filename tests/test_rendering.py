@@ -19,7 +19,10 @@ from astrbot_plugin_beszel.core.beszel.models import (
 )
 from astrbot_plugin_beszel.core.errors import RenderingError
 from astrbot_plugin_beszel.core.rendering import renderer as renderer_module
-from astrbot_plugin_beszel.core.rendering.engine import PytakumiEngine
+from astrbot_plugin_beszel.core.rendering.engine import (
+    MAX_MARKUP_DEPTH,
+    PytakumiEngine,
+)
 from astrbot_plugin_beszel.core.rendering.models import (
     ChartPoint,
     ChartSeries,
@@ -466,6 +469,37 @@ def test_engine_render_failure_logs_warning_without_markup(
     assert "fixture-render-markup" not in caplog.text
 
 
+def test_engine_converts_native_panics_and_rejects_deep_markup() -> None:
+    engine = PytakumiEngine(
+        bundled_font_path=BeszelRenderer._bundled_font_path,
+        configured_font_path=None,
+    )
+
+    class PanicException(BaseException):
+        pass
+
+    class PanickingNativeRenderer:
+        def __init__(self, exc: BaseException) -> None:
+            self.exc = exc
+
+        def render(self, *args, **kwargs) -> bytes:
+            raise self.exc
+
+    engine._renderer = PanickingNativeRenderer(PanicException("engine panic"))
+    with pytest.raises(RenderingError, match="请查看日志"):
+        engine.render("<div>fixture</div>", width=800)
+
+    engine._renderer = PanickingNativeRenderer(KeyboardInterrupt())
+    with pytest.raises(KeyboardInterrupt):
+        engine.render("<div>fixture</div>", width=800)
+
+    deep_markup = (
+        "<div>" * (MAX_MARKUP_DEPTH + 1) + "x" + "</div>" * (MAX_MARKUP_DEPTH + 1)
+    )
+    with pytest.raises(RenderingError):
+        engine.render(deep_markup, width=800)
+
+
 def test_template_failure_logs_warning_without_context(
     status_data, rendering_data, caplog, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -598,19 +632,20 @@ async def test_render_scale_dimensions_and_normalized_height(
         finally:
             renderer.close()
 
-    # Verify normalized height tolerance: abs(h_scaled / dpr - h_base) / h_base <= 3%
+    # Normalized heights stay close to the 100% render; pytakumi 0.1.5 lays out
+    # text-heavy pages up to about 5% taller below 1x (measured at 50%).
     base_overview_h = results[100]["overview"][1]
     base_status_h = results[100]["status"][1]
     base_history_h = results[100]["history"][1]
 
-    for scale, dpr in [(50, 0.5), (200, 2.0)]:
+    for scale, dpr, tolerance in [(50, 0.5, 0.06), (200, 2.0, 0.03)]:
         overview_norm_h = results[scale]["overview"][1] / dpr
         status_norm_h = results[scale]["status"][1] / dpr
         history_norm_h = results[scale]["history"][1] / dpr
 
-        assert abs(overview_norm_h - base_overview_h) / base_overview_h <= 0.03
-        assert abs(status_norm_h - base_status_h) / base_status_h <= 0.03
-        assert abs(history_norm_h - base_history_h) / base_history_h <= 0.03
+        assert abs(overview_norm_h - base_overview_h) / base_overview_h <= tolerance
+        assert abs(status_norm_h - base_status_h) / base_status_h <= tolerance
+        assert abs(history_norm_h - base_history_h) / base_history_h <= tolerance
 
     # Multipage overview dimension consistency check at 150%
     renderer_multi = _renderer(rendering_data, render_scale=150)

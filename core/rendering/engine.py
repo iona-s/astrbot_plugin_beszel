@@ -10,6 +10,8 @@ from astrbot.api import logger
 from ..errors import RenderingError
 
 DEFAULT_GLYPH_CACHE_BYTES = 32 * 1024 * 1024
+# Templates nest about 10 levels; the bound keeps parsing off the native stack limit.
+MAX_MARKUP_DEPTH = 64
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 
 
@@ -56,14 +58,21 @@ class PytakumiEngine:
         if width <= 0 or (height is not None and height <= 0):
             raise RenderingError("图片渲染尺寸无效")
         try:
-            source = pytakumi.from_html(markup)
+            source = pytakumi.from_html(markup, max_depth=MAX_MARKUP_DEPTH)
             result = self._render_native(
                 source,
                 width=width,
                 height=height,
                 device_pixel_ratio=device_pixel_ratio,
             )
-        except Exception as exc:
+        except BaseException as exc:
+            # Engine panics surface as pyo3_runtime.PanicException, which derives
+            # from BaseException; any other BaseException keeps propagating.
+            if (
+                not isinstance(exc, Exception)
+                and type(exc).__name__ != "PanicException"
+            ):
+                raise
             logger.warning(
                 "Image rendering failed at stage=render: %s",
                 type(exc).__name__,
