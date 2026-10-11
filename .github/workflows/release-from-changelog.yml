@@ -104,10 +104,26 @@ jobs:
 
           before="$BEFORE_SHA_INPUT"
           after="${TARGET_SHA_INPUT:-$GITHUB_SHA}"
+          compare_sections="false"
           if [ -z "$before" ] || [ "$before" = "0000000000000000000000000000000000000000" ]; then
             changed="$(git ls-files CHANGELOG.md)"
           else
             changed="$(git diff --name-only "$before" "$after" -- CHANGELOG.md)"
+            compare_sections="true"
+          fi
+
+          # Print the first version section, which becomes the release notes.
+          latest_section() {
+            git --no-pager show "$1:CHANGELOG.md" 2>/dev/null \
+              | awk '/^##[[:space:]]*\[?v?[0-9]+\.[0-9]+\.[0-9]+/ { if (found) exit; found = 1 } found { print }' \
+              || true
+          }
+
+          # Skip changes outside the latest version section, such as [Unreleased].
+          if [ -n "$changed" ] && [ "$compare_sections" = "true" ] \
+            && [ "$(latest_section "$before")" = "$(latest_section "$after")" ]; then
+            echo "Skipping CHANGELOG.md: latest version section is unchanged."
+            changed=""
           fi
 
           if [ -n "$changed" ]; then
