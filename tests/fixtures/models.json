@@ -20,6 +20,9 @@
   "sample_without_bandwidth": {
     "stats": {"cpu": 25.0, "m": 16.0, "mu": 4.0}
   },
+  "sample_with_unused_swap": {
+    "stats": {"cpu": 25.0, "s": 4.0}
+  },
   "sample_explicit_zero_bandwidth": {
     "stats": {"cpu": 25.0, "b": [0, 0]}
   },

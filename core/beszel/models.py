@@ -156,9 +156,18 @@ class SystemDetails(BaseModel):
 
 
 def _normalize_sample_stats(stats: Any) -> Any:
-    if isinstance(stats, dict) and stats and "b" not in stats:
-        return {**stats, "b": [0, 0]}
-    return stats
+    # Beszel omits these fields when they are zero (omitzero/omitempty), so a
+    # missing value is a zero reading rather than a missing sample.
+    if not isinstance(stats, dict) or not stats:
+        return stats
+    defaults: dict[str, Any] = {
+        "b": [0, 0],
+        "dio": [0, 0],
+        "dios": [0, 0, 0, 0, 0, 0],
+    }
+    if "s" in stats:
+        defaults["su"] = 0
+    return {**defaults, **stats}
 
 
 class SystemMetrics(BaseModel):

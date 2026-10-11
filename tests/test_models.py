@@ -67,7 +67,7 @@ def test_metrics_require_stats(models_data) -> None:
         SystemMetrics.model_validate(models_data["metrics_without_stats"])
 
 
-def test_omitted_bandwidth_is_normalized_to_zero_without_mutating_input(
+def test_omitted_zero_fields_are_normalized_without_mutating_input(
     models_data,
 ) -> None:
     raw_stats = dict(models_data["sample_without_bandwidth"]["stats"])
@@ -75,7 +75,10 @@ def test_omitted_bandwidth_is_normalized_to_zero_without_mutating_input(
 
     metrics = SystemMetrics(stats=raw_stats)
     assert metrics.stats["b"] == [0, 0]
-    assert "b" not in raw_stats
+    assert metrics.stats["dio"] == [0, 0]
+    assert metrics.stats["dios"] == [0, 0, 0, 0, 0, 0]
+    # Without a swap total there is no swap to report as used.
+    assert "su" not in metrics.stats
     assert tuple(raw_stats.keys()) == original_keys
 
     point = SystemHistoryPoint(
@@ -83,6 +86,9 @@ def test_omitted_bandwidth_is_normalized_to_zero_without_mutating_input(
     )
     assert point.stats["b"] == [0, 0]
     assert "b" not in raw_stats
+
+    swap = SystemMetrics.model_validate(models_data["sample_with_unused_swap"])
+    assert swap.stats["su"] == 0
 
 
 def test_explicit_and_malformed_bandwidth_values_are_preserved(models_data) -> None:
