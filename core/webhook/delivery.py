@@ -21,7 +21,12 @@ from ..analysis import (
     format_analysis_reply,
     summarize_analysis,
 )
-from ..beszel.models import HistoryRange, SystemDetailView, SystemHistoryView
+from ..beszel.models import (
+    HistoryRange,
+    SystemDetailView,
+    SystemHealthView,
+    SystemHistoryView,
+)
 from ..beszel.service import QueryService
 from ..config import WebhookConfig
 from ..rendering.renderer import BeszelRenderer
@@ -249,8 +254,18 @@ class WebhookDelivery:
                     type(exc).__name__,
                 )
 
+            health: SystemHealthView | None = None
+            try:
+                health = await self.service.get_system_health(system_id)
+            except Exception as exc:
+                logger.warning(
+                    "Webhook analysis health query failed (request_id=%s): %s",
+                    notification.request_id,
+                    type(exc).__name__,
+                )
+
             user_prompt = extract_analysis_context(
-                notification, detail, history, reference_time
+                notification, detail, history, reference_time, health
             )
             if previous_task is not None:
                 await asyncio.wait([previous_task])

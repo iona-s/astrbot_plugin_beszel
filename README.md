@@ -178,7 +178,7 @@ generic://127.0.0.1:8899/?template=json&disabletls=yes&@Authorization=Bearer%20<
 ```
 
 #### ③ 进阶增强：告警附加大模型智能根因诊断（插件特殊特性）
-通过在 URL 中附加 `$source=beszel` 与 `$send_analysis=true` 参数，插件在收到该告警后，**会自动提取故障节点过去 1 小时的时序与容器特征，调用 `analysis_provider_id` 指定的模型（未指定时为第一个可用目标会话的模型）生成针对性的辅助诊断与排查建议，所有目标收到同一条诊断；同一节点之前的诊断会作为上下文一并提供，例如上线告警可结合离线时的诊断说明变化**：
+通过在 URL 中附加 `$source=beszel` 与 `$send_analysis=true` 参数，插件在收到该告警后，**会自动汇总故障节点过去 1 小时的 CPU、内存、磁盘、负载、Swap、磁盘 I/O、网络与温度指标，以及运行时长、失败的系统服务、容器健康状态与硬盘 SMART 故障，调用 `analysis_provider_id` 指定的模型（未指定时为第一个可用目标会话的模型）生成针对性的辅助诊断与排查建议，所有目标收到同一条诊断；同一节点之前的诊断会作为上下文一并提供，例如上线告警可结合离线时的诊断说明变化**：
 ```text
 generic://127.0.0.1:8899/?template=json&disabletls=yes&@Authorization=Bearer%20<TOKEN>&$source=beszel&$send_analysis=true
 ```

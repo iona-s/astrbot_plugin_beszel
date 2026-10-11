@@ -3,7 +3,8 @@
   "system_summary": {
     "id": "pubatlas0000001",
     "name": "Atlas Gateway",
-    "status": "up"
+    "status": "up",
+    "info": {"u": 420, "sv": [120, 1], "t": 8, "efs": {"data": 91.24, "backup": 40.0}}
   },
   "system_details": {
     "hostname": "atlas-gw-01",
@@ -20,45 +21,56 @@
       "cpu": 92.5,
       "mp": 85.0,
       "mu": 13.6,
-      "m": 16.0
+      "m": 16.0,
+      "d": 100.0,
+      "du": 50.0,
+      "dp": 50.0,
+      "la": [6.4, 3.1, 1.5],
+      "s": 4.0,
+      "su": 1.0,
+      "cpub": [60.0, 15.0, 12.5, 0.0, 12.5],
+      "dio": [2097152, 1048576],
+      "dios": [10.0, 20.0, 65.5, 4.2, 8.76, 80.0],
+      "b": [524288, 1048576],
+      "t": {"cpu_thermal": 71.5, "nvme0": 45.0}
     }
   },
   "history_points": [
     {
       "created": "2026-09-13T23:45:00Z",
-      "stats": {"cpu": 99.9, "mp": 99.9}
+      "stats": {"cpu": 99.9, "mp": 99.9, "la": [9.9, 1.0, 1.0], "cpub": [20.0, 5.0, 50.0, 0.0, 25.0]}
     },
     {
       "created": "2026-09-14T00:10:00Z",
-      "stats": {"cpu": 10.0, "mp": 20.0}
+      "stats": {"cpu": 10.0, "mp": 20.0, "la": [0.5, 1.0, 1.0], "cpub": [20.0, 5.0, 1.0, 0.0, 74.0]}
     },
     {
       "created": "2026-09-14T00:10:00Z",
-      "stats": {"cpu": 12.0, "mp": 22.0}
+      "stats": {"cpu": 12.0, "mp": 22.0, "la": [0.6, 1.0, 1.0], "cpub": [20.0, 5.0, 1.0, 0.0, 74.0]}
     },
     {
       "created": "2026-09-14T00:20:00Z",
-      "stats": {"cpu": 15.0, "mp": 25.0}
+      "stats": {"cpu": 15.0, "mp": 25.0, "la": [0.8, 1.0, 1.0], "cpub": [20.0, 5.0, 1.0, 0.0, 74.0]}
     },
     {
       "created": "2026-09-14T00:30:00Z",
-      "stats": {"cpu": 0.0, "mp": 25.0}
+      "stats": {"cpu": 0.0, "mp": 25.0, "la": [0.7, 1.0, 1.0], "cpub": [20.0, 5.0, 1.0, 0.0, 74.0]}
     },
     {
       "created": "2026-09-14T00:40:00Z",
-      "stats": {"cpu": 13.0, "mp": 28.0}
+      "stats": {"cpu": 13.0, "mp": 28.0, "la": [0.9, 1.0, 1.0], "cpub": [20.0, 5.0, 1.0, 0.0, 74.0]}
     },
     {
       "created": "2026-09-14T00:50:00Z",
-      "stats": {"cpu": 90.0, "mp": 80.0}
+      "stats": {"cpu": 90.0, "mp": 80.0, "la": [5.0, 1.0, 1.0], "cpub": [20.0, 5.0, 10.0, 0.0, 65.0]}
     },
     {
       "created": "2026-09-14T00:55:00Z",
-      "stats": {"cpu": 95.0, "mp": 85.0}
+      "stats": {"cpu": 95.0, "mp": 85.0, "la": [6.0, 1.0, 1.0], "cpub": [20.0, 5.0, 15.0, 0.0, 60.0]}
     },
     {
       "created": "2026-09-14T01:10:00Z",
-      "stats": {"cpu": 99.9, "mp": 99.9}
+      "stats": {"cpu": 99.9, "mp": 99.9, "la": [9.9, 1.0, 1.0], "cpub": [20.0, 5.0, 50.0, 0.0, 25.0]}
     }
   ],
   "container_history_points": [
@@ -99,5 +111,15 @@
         {"n": "c_tied_a", "c": 20.0, "m": 500.0}
       ]
     }
-  ]
+  ],
+  "health": {
+    "containers": [
+      {"name": "c_high_cpu", "status": "Up 3 minutes", "health": 3},
+      {"name": "c_high_mem", "status": "Up 2 days", "health": 2},
+      {"name": "c_tied_a", "status": "Up 2 days", "health": 0},
+      {"name": "sidecar", "status": "Up 1 hour", "health": 3}
+    ],
+    "failed_services": [{"name": "nginx.service", "state": 2}],
+    "failed_smart_devices": [{"name": "/dev/sda", "model": "Fixture SSD", "state": "FAILED"}]
+  }
 }

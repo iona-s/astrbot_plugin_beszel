@@ -17,8 +17,10 @@ from astrbot_plugin_beszel.core.analysis import (
 from astrbot_plugin_beszel.core.beszel.models import (
     ContainerHistoryMetrics,
     ContainerHistoryPoint,
+    ContainerState,
     HistoryRange,
     SystemDetailView,
+    SystemHealthView,
     SystemHistoryView,
     SystemMetrics,
     SystemSummary,
@@ -404,11 +406,15 @@ class _FakeRenderer:
 
 
 class _FakeHistoryService:
-    def __init__(self, view=None, detail=None, systems=None, history_exc=None) -> None:
+    def __init__(
+        self, view=None, detail=None, systems=None, history_exc=None, health=None
+    ) -> None:
         self.view = view
         self.detail = detail
         self.systems = systems or []
         self.history_exc = history_exc
+        self.health = health if health is not None else SystemHealthView()
+        self.health_exc: Exception | None = None
         self.hang_event: asyncio.Event | None = None
         self.calls: list[str] = []
 
@@ -431,6 +437,14 @@ class _FakeHistoryService:
         if self.hang_event is not None:
             await self.hang_event.wait()
         return self.detail
+
+    async def get_system_health(self, _system_id):
+        self.calls.append("get_system_health")
+        if self.hang_event is not None:
+            await self.hang_event.wait()
+        if self.health_exc is not None:
+            raise self.health_exc
+        return self.health
 
 
 class _FakeProvider(Provider):
@@ -1591,7 +1605,35 @@ async def test_webhook_analysis_includes_earlier_diagnoses_of_same_node() -> Non
         "diagnosis",
     }
     assert entry["title"] == "Title"
-    assert entry["metrics"]["cpu"]["latest_pct"] == 80.0
+    assert entry["metrics"]["cpu_pct"]["latest"] == 80.0
+
+
+@pytest.mark.asyncio
+async def test_webhook_analysis_includes_node_health(astrbot_log_records) -> None:
+    provider = _FakeProvider()
+    context = _FakeContext(providers={"target:umo1": provider})
+    delivery = _analysis_delivery(context)
+    delivery.service.health = SystemHealthView(
+        containers=[ContainerState(name="worker", status="Up 1 minute", health=3)]
+    )
+
+    await delivery.deliver(_analysis_alert("health-1"))
+    await _drain(delivery)
+    # A failed health query only removes its data from the prompt.
+    delivery.service.health_exc = RuntimeError("hub down")
+    await delivery.deliver(_analysis_alert("health-2"))
+    await _drain(delivery)
+    await delivery.close()
+
+    first, second = (json.loads(call["prompt"]) for call in provider.calls)
+    assert first["unhealthy_containers"] == ["worker"]
+    assert "unhealthy_containers" not in second
+    assert len(_analysis_replies(context)) == 2
+    assert any(
+        "health query failed (request_id=health-2): RuntimeError" in r.getMessage()
+        for r in astrbot_log_records
+        if r.levelno == logging.WARNING
+    )
 
 
 @pytest.mark.asyncio
