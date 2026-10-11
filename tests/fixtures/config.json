@@ -30,7 +30,10 @@
       "target_umos": ["aiocqhttp:group:fixture", ""],
       "analysis_provider_id": "  fixture-provider  ",
       "analysis_prompt": "Custom analysis prompt",
-      "analysis_timeout_seconds": 30
+      "analysis_timeout_seconds": 30,
+      "analysis_context_hours": 48,
+      "analysis_context_recent_hours": 3,
+      "analysis_context_max_records": 8
     }
   },
   "inherited_timezone": {
@@ -165,6 +168,22 @@
       "expected_timeout": 60
     }
   },
+  "analysis_context_cases": [
+    {"raw": {"analysis_context_hours": 0}, "expected": [0, 6, 8]},
+    {"raw": {"analysis_context_hours": 168}, "expected": [168, 6, 8]},
+    {"raw": {"analysis_context_hours": 169}, "expected": [24, 6, 8]},
+    {"raw": {"analysis_context_hours": null}, "expected": [24, 6, 8]},
+    {"raw": {"analysis_context_recent_hours": 0}, "expected": [24, 0, 8]},
+    {"raw": {"analysis_context_recent_hours": 168}, "expected": [24, 168, 8]},
+    {"raw": {"analysis_context_recent_hours": -1}, "expected": [24, 6, 8]},
+    {"raw": {"analysis_context_max_records": 1}, "expected": [24, 6, 1]},
+    {"raw": {"analysis_context_max_records": 20}, "expected": [24, 6, 20]},
+    {"raw": {"analysis_context_max_records": 0}, "expected": [24, 6, 8]},
+    {"raw": {"analysis_context_max_records": 21}, "expected": [24, 6, 8]},
+    {"raw": {"analysis_context_max_records": true}, "expected": [24, 6, 8]},
+    {"raw": {"analysis_context_max_records": "5"}, "expected": [24, 6, 8]},
+    {"raw": {"analysis_context_hours": 2.5}, "expected": [24, 6, 8]}
+  ],
   "astrbot_timezone": "Australia/Sydney",
   "expected": {
     "minimal": {
@@ -178,7 +197,10 @@
       "cache_ttl_seconds": 60,
       "analysis_provider_id": "",
       "analysis_prompt": "",
-      "analysis_timeout_seconds": 60
+      "analysis_timeout_seconds": 60,
+      "analysis_context_hours": 24,
+      "analysis_context_recent_hours": 6,
+      "analysis_context_max_records": 8
     },
     "complete": {
       "base_url": "https://hub.fixture.example",
@@ -194,7 +216,10 @@
       "cache_ttl_seconds": 120,
       "analysis_provider_id": "fixture-provider",
       "analysis_prompt": "Custom analysis prompt",
-      "analysis_timeout_seconds": 30
+      "analysis_timeout_seconds": 30,
+      "analysis_context_hours": 48,
+      "analysis_context_recent_hours": 3,
+      "analysis_context_max_records": 8
     },
     "inherited_timezone": "Australia/Sydney",
     "padded_webhook_token": "fixture-webhook-token"

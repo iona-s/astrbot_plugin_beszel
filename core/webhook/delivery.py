@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections import deque
 from collections.abc import Coroutine
 from datetime import UTC, datetime
 from typing import Any
@@ -14,8 +15,11 @@ from astrbot.core.message.message_event_result import MessageChain
 
 from ..analysis import (
     DEFAULT_ANALYSIS_PROMPT,
+    AnalysisRecord,
+    add_analysis_history,
     extract_analysis_context,
     format_analysis_reply,
+    summarize_analysis,
 )
 from ..beszel.models import HistoryRange, SystemDetailView, SystemHistoryView
 from ..beszel.service import QueryService
@@ -41,6 +45,9 @@ class WebhookDelivery:
         self.renderer = renderer
         self._background_tasks: set[asyncio.Task] = set()
         self._closed: bool = False
+        # Kept in memory only, so a restart or plugin reload starts fresh.
+        self._analysis_records: dict[str, deque[AnalysisRecord]] = {}
+        self._analysis_tails: dict[str, asyncio.Task] = {}
 
     async def deliver(self, notification: NormalizedNotification) -> int:
         """Send the raw text and schedule the enabled optional branches.
@@ -206,180 +213,205 @@ class WebhookDelivery:
         self, notification: NormalizedNotification, reference_time: datetime
     ) -> None:
         notification = await self._resolve_system(notification)
-        if not notification.history_system_id or not notification.send_analysis:
+        system_id = notification.history_system_id
+        if not system_id or not notification.send_analysis:
             logger.debug(
                 "Webhook analysis skipped: node could not be resolved (request_id=%s)",
                 notification.request_id,
             )
             return
 
-        detail: SystemDetailView | None = None
+        # Analyses of one node finish in acceptance order, so a later alert such
+        # as a recovery can include the diagnosis of an earlier one.
+        previous_task = self._analysis_tails.get(system_id)
+        current_task = asyncio.current_task()
+        self._analysis_tails[system_id] = current_task
         try:
-            detail = await self.service.get_system_detail(
-                notification.history_system_id
-            )
-        except Exception as exc:
-            logger.warning(
-                "Webhook analysis detail query failed (request_id=%s): %s",
-                notification.request_id,
-                type(exc).__name__,
-            )
-
-        history: SystemHistoryView | None = None
-        try:
-            history = await self.service.get_system_history(
-                notification.history_system_id, HistoryRange.ONE_HOUR
-            )
-        except Exception as exc:
-            logger.warning(
-                "Webhook analysis history query failed (request_id=%s): %s",
-                notification.request_id,
-                type(exc).__name__,
-            )
-
-        user_prompt = extract_analysis_context(
-            notification, detail, history, reference_time
-        )
-        if user_prompt is None:
-            logger.debug(
-                "Webhook analysis skipped (request_id=%s): no valid metrics or input exceeded limits",
-                notification.request_id,
-            )
-            return
-
-        effective_system_prompt = self.config.analysis_prompt or DEFAULT_ANALYSIS_PROMPT
-
-        configured_provider: Provider | None = None
-        if self.config.analysis_provider_id:
-            found = self.context.get_provider_by_id(self.config.analysis_provider_id)
-            if isinstance(found, Provider):
-                configured_provider = found
-            else:
-                logger.warning(
-                    "Configured analysis provider %s is missing or not a chat provider; "
-                    "using each target's session provider (request_id=%s)",
-                    self.config.analysis_provider_id,
-                    notification.request_id,
-                )
-
-        for target in self.config.target_umos:
-            if self._closed:
-                break
+            detail: SystemDetailView | None = None
             try:
-                await asyncio.wait_for(
-                    self._deliver_analysis_to_target(
-                        target,
-                        configured_provider,
-                        user_prompt,
-                        effective_system_prompt,
-                        notification.request_id,
-                    ),
-                    timeout=self.config.analysis_timeout_seconds,
-                )
-            except TimeoutError:
-                logger.warning(
-                    "Webhook analysis timed out for target=%s (request_id=%s, timeout=%ds)",
-                    target,
-                    notification.request_id,
-                    self.config.analysis_timeout_seconds,
-                )
+                detail = await self.service.get_system_detail(system_id)
             except Exception as exc:
                 logger.warning(
-                    "Webhook analysis delivery failed for target=%s (request_id=%s): %s",
-                    target,
+                    "Webhook analysis detail query failed (request_id=%s): %s",
                     notification.request_id,
                     type(exc).__name__,
                 )
 
-    async def _deliver_analysis_to_target(
-        self,
-        target: str,
-        provider: Provider | None,
-        user_prompt: str,
-        system_prompt: str,
-        request_id: str,
-    ) -> None:
-        if provider is None:
+            history: SystemHistoryView | None = None
             try:
-                # AstrBot 4.27.3 deprecates the sync lookup, which may query the
-                # database on the event loop; 4.25 only provides the sync form.
-                provider_getter = getattr(
-                    self.context, "get_using_provider_async", None
+                history = await self.service.get_system_history(
+                    system_id, HistoryRange.ONE_HOUR
                 )
-                if provider_getter is not None:
-                    provider = await provider_getter(target)
-                else:
-                    provider = self.context.get_using_provider(target)
             except Exception as exc:
                 logger.warning(
-                    "Webhook provider selection failed for target=%s (request_id=%s): %s",
-                    target,
-                    request_id,
+                    "Webhook analysis history query failed (request_id=%s): %s",
+                    notification.request_id,
                     type(exc).__name__,
+                )
+
+            user_prompt = extract_analysis_context(
+                notification, detail, history, reference_time
+            )
+            if previous_task is not None:
+                await asyncio.wait([previous_task])
+            if user_prompt is None:
+                logger.debug(
+                    "Webhook analysis skipped (request_id=%s): no valid metrics or input exceeded limits",
+                    notification.request_id,
                 )
                 return
 
+            records = self._analysis_records.setdefault(
+                system_id, deque(maxlen=self.config.analysis_context_max_records)
+            )
+            prompt, history_count = add_analysis_history(
+                user_prompt,
+                records,
+                reference_time,
+                recent_hours=self.config.analysis_context_recent_hours,
+                context_hours=self.config.analysis_context_hours,
+            )
+            logger.debug(
+                "WebhookDelivery: analysis for system_id=%s includes %d earlier diagnoses (request_id=%s)",
+                system_id,
+                history_count,
+                notification.request_id,
+            )
+
+            reply_text = await self._generate_analysis(prompt, notification.request_id)
+            if reply_text is None or self._closed:
+                return
+            if self.config.analysis_context_hours:
+                records.append(
+                    summarize_analysis(user_prompt, reply_text, reference_time)
+                )
+
+            chain = MessageChain([Plain(reply_text)])
+            for target in self.config.target_umos:
+                if self._closed:
+                    break
+                try:
+                    sent = await self.context.send_message(target, chain)
+                    if not sent:
+                        logger.warning(
+                            "Webhook analysis message delivery rejected or unhandled for target=%s (request_id=%s)",
+                            target,
+                            notification.request_id,
+                        )
+                    else:
+                        logger.debug(
+                            "WebhookDelivery: analysis sent to target=%s (request_id=%s)",
+                            target,
+                            notification.request_id,
+                        )
+                except Exception as exc:
+                    logger.warning(
+                        "Webhook analysis delivery failed for target=%s (request_id=%s): %s",
+                        target,
+                        notification.request_id,
+                        type(exc).__name__,
+                    )
+        finally:
+            if self._analysis_tails.get(system_id) is current_task:
+                del self._analysis_tails[system_id]
+
+    async def _generate_analysis(
+        self,
+        user_prompt: str,
+        request_id: str,
+    ) -> str | None:
+        """Call the chat model once on behalf of every target.
+
+        Args:
+            user_prompt: Alert JSON, including any earlier diagnoses as ``history``.
+            request_id: Correlation ID used in logs.
+
+        Returns:
+            The diagnosis with ``DIAGNOSIS_PREFIX``, or None when no provider is
+            available or the call fails, times out, or returns no usable text.
+        """
+        provider: Provider | None = None
+        if self.config.analysis_provider_id:
+            found = self.context.get_provider_by_id(self.config.analysis_provider_id)
+            if isinstance(found, Provider):
+                provider = found
+            else:
+                logger.warning(
+                    "Configured analysis provider %s is missing or not a chat provider; "
+                    "using a target session provider (request_id=%s)",
+                    self.config.analysis_provider_id,
+                    request_id,
+                )
+
+        if provider is None:
+            # AstrBot 4.27.3 deprecates the sync lookup, which may query the
+            # database on the event loop; 4.25 only provides the sync form.
+            provider_getter = getattr(self.context, "get_using_provider_async", None)
+            for target in self.config.target_umos:
+                try:
+                    if provider_getter is not None:
+                        provider = await provider_getter(target)
+                    else:
+                        provider = self.context.get_using_provider(target)
+                except Exception as exc:
+                    logger.warning(
+                        "Webhook provider selection failed for target=%s (request_id=%s): %s",
+                        target,
+                        request_id,
+                        type(exc).__name__,
+                    )
+                    continue
+                if provider is not None:
+                    break
+
         if provider is None:
             logger.warning(
-                "No chat completion provider available for target=%s (request_id=%s)",
-                target,
+                "No chat completion provider available for webhook analysis (request_id=%s)",
                 request_id,
             )
-            return
+            return None
 
         try:
-            resp = await provider.text_chat(
-                prompt=user_prompt,
-                system_prompt=system_prompt,
-                contexts=[],
-                func_tool=None,
+            resp = await asyncio.wait_for(
+                provider.text_chat(
+                    prompt=user_prompt,
+                    system_prompt=self.config.analysis_prompt
+                    or DEFAULT_ANALYSIS_PROMPT,
+                    contexts=[],
+                    func_tool=None,
+                ),
+                timeout=self.config.analysis_timeout_seconds,
             )
+        except TimeoutError:
+            logger.warning(
+                "Webhook analysis timed out (request_id=%s, timeout=%ds)",
+                request_id,
+                self.config.analysis_timeout_seconds,
+            )
+            return None
         except Exception as exc:
             logger.warning(
-                "LLM text_chat failed for target=%s (request_id=%s): %s",
-                target,
+                "LLM text_chat failed (request_id=%s): %s",
                 request_id,
                 type(exc).__name__,
             )
-            return
+            return None
 
         if getattr(resp, "role", None) != "assistant":
             logger.warning(
-                "LLM response for target=%s (request_id=%s) had non-assistant role: %s",
-                target,
+                "LLM response (request_id=%s) had non-assistant role: %s",
                 request_id,
                 getattr(resp, "role", None),
             )
-            return
+            return None
 
-        completion_text = getattr(resp, "completion_text", None) or ""
-        reply_text = format_analysis_reply(completion_text)
+        reply_text = format_analysis_reply(getattr(resp, "completion_text", None))
         if not reply_text:
             logger.warning(
-                "LLM response completion_text was empty for target=%s (request_id=%s)",
-                target,
-                request_id,
+                "LLM response completion_text was empty (request_id=%s)", request_id
             )
-            return
-
-        if self._closed:
-            return
-
-        sent = await self.context.send_message(
-            target, MessageChain([Plain(reply_text)])
-        )
-        if not sent:
-            logger.warning(
-                "Webhook analysis message delivery rejected or unhandled for target=%s (request_id=%s)",
-                target,
-                request_id,
-            )
-        else:
-            logger.debug(
-                "WebhookDelivery: analysis sent to target=%s (request_id=%s)",
-                target,
-                request_id,
-            )
+            return None
+        return reply_text
 
     async def close(self) -> None:
         """Cancel and await all pending background tasks, then wait for renderer idle."""

@@ -34,6 +34,21 @@ def _opt_text(value: object, default: str = "") -> str:
     return str(value)
 
 
+def _webhook_int(raw: dict, key: str, default: int, minimum: int, maximum: int) -> int:
+    """Return an optional webhook integer, warning and using the default when invalid."""
+    value = raw.get(key)
+    if value is None:
+        return default
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, int)
+        or not minimum <= value <= maximum
+    ):
+        logger.warning("Invalid webhook.%s (%s); using default %s", key, value, default)
+        return default
+    return value
+
+
 def _string_items(value: object) -> tuple[str, ...]:
     if not isinstance(value, list):
         return ()
@@ -91,6 +106,9 @@ class WebhookConfig:
     analysis_provider_id: str = ""
     analysis_prompt: str = ""
     analysis_timeout_seconds: int = 60
+    analysis_context_hours: int = 24
+    analysis_context_recent_hours: int = 6
+    analysis_context_max_records: int = 8
 
 
 @dataclass(frozen=True, slots=True)
@@ -265,21 +283,18 @@ class PluginConfig:
             else:
                 analysis_prompt = analysis_prompt_raw.strip()
 
-        analysis_timeout_raw = webhook_raw.get("analysis_timeout_seconds", 60)
-        if analysis_timeout_raw is None:
-            analysis_timeout_seconds = 60
-        elif (
-            isinstance(analysis_timeout_raw, bool)
-            or not isinstance(analysis_timeout_raw, int)
-            or not 1 <= analysis_timeout_raw <= 300
-        ):
-            logger.warning(
-                "Invalid webhook.analysis_timeout_seconds (%s); using default 60s",
-                analysis_timeout_raw,
-            )
-            analysis_timeout_seconds = 60
-        else:
-            analysis_timeout_seconds = int(analysis_timeout_raw)
+        analysis_timeout_seconds = _webhook_int(
+            webhook_raw, "analysis_timeout_seconds", 60, 1, 300
+        )
+        analysis_context_hours = _webhook_int(
+            webhook_raw, "analysis_context_hours", 24, 0, 168
+        )
+        analysis_context_recent_hours = _webhook_int(
+            webhook_raw, "analysis_context_recent_hours", 6, 0, 168
+        )
+        analysis_context_max_records = _webhook_int(
+            webhook_raw, "analysis_context_max_records", 8, 1, 20
+        )
 
         return cls(
             beszel=BeszelConfig(
@@ -316,5 +331,8 @@ class PluginConfig:
                 analysis_provider_id=_opt_str(webhook_raw.get("analysis_provider_id")),
                 analysis_prompt=analysis_prompt,
                 analysis_timeout_seconds=analysis_timeout_seconds,
+                analysis_context_hours=analysis_context_hours,
+                analysis_context_recent_hours=analysis_context_recent_hours,
+                analysis_context_max_records=analysis_context_max_records,
             ),
         )

@@ -6,8 +6,12 @@ from datetime import UTC, datetime, timedelta, timezone
 from astrbot_plugin_beszel.core.analysis import (
     DEFAULT_ANALYSIS_PROMPT,
     DIAGNOSIS_PREFIX,
+    MAX_COMPLETION_CHARS,
+    AnalysisRecord,
+    add_analysis_history,
     extract_analysis_context,
     format_analysis_reply,
+    summarize_analysis,
 )
 from astrbot_plugin_beszel.core.beszel.models import (
     ContainerHistoryPoint,
@@ -33,6 +37,8 @@ def test_default_analysis_prompt_content() -> None:
     assert "目标篇幅为 150~250 字，总长不超过 250 字" in DEFAULT_ANALYSIS_PROMPT
     assert "可能原因：" in DEFAULT_ANALYSIS_PROMPT
     assert "优先排查：" in DEFAULT_ANALYSIS_PROMPT
+    assert "history" in DEFAULT_ANALYSIS_PROMPT
+    assert "before_current_seconds" in DEFAULT_ANALYSIS_PROMPT
 
 
 def test_format_analysis_reply_boundaries() -> None:
@@ -43,13 +49,18 @@ def test_format_analysis_reply_boundaries() -> None:
     normal_text = "这是测试诊断结果，建议排查 Nginx 进程。"
     assert format_analysis_reply(normal_text) == f"{DIAGNOSIS_PREFIX}{normal_text}"
 
-    long_text = "A" * 300
-    formatted = format_analysis_reply(long_text)
-    assert formatted.startswith(DIAGNOSIS_PREFIX)
-    # The body text after prefix should be 249 chars + "…"
-    body = formatted[len(DIAGNOSIS_PREFIX) :]
-    assert len(body) == 250
-    assert body.endswith("…")
+    # Slightly long replies are kept; the limit only stops runaway output.
+    assert format_analysis_reply("A" * 300) == f"{DIAGNOSIS_PREFIX}{'A' * 300}"
+
+    def body(text: str) -> str:
+        return format_analysis_reply(text).removeprefix(DIAGNOSIS_PREFIX)
+
+    assert body("A" * 500) == "A" * (MAX_COMPLETION_CHARS - 1) + "…"
+    # Cut after the last full stop or line break in the second half.
+    assert body("一二三四五六七八九。" * 50) == "一二三四五六七八九。" * 39 + "…"
+    assert body(("x" * 99 + "\n") * 5) == ("x" * 99 + "\n") * 2 + "x" * 99 + "…"
+    early_stop = "短句。" + "A" * 500
+    assert body(early_stop) == early_stop[: MAX_COMPLETION_CHARS - 1] + "…"
 
 
 def test_extract_analysis_context_full_flow(analysis_data) -> None:
@@ -441,3 +452,138 @@ def test_extract_analysis_context_marks_initial_field_truncation() -> None:
     long_data = json.loads(long_json)
     assert long_data["truncated"] is True
     assert len(long_data["alert"]["message"]) == 240
+
+
+def _record(t_ref: datetime, hours_ago: float, diagnosis: str) -> AnalysisRecord:
+    return AnalysisRecord(
+        time=t_ref - timedelta(hours=hours_ago),
+        summary={"title": diagnosis, "diagnosis": diagnosis},
+    )
+
+
+def _history(prompt: str) -> list[dict]:
+    return json.loads(prompt).get("history", [])
+
+
+def test_add_analysis_history_uses_all_recent_records_in_order() -> None:
+    t_ref = datetime(2026, 10, 11, 12, 0, tzinfo=UTC)
+    user_prompt = json.dumps({"alert": {"title": "now"}, "time": {}})
+    records = [
+        _record(t_ref, 30, "too old"),
+        _record(t_ref, 8, "older"),
+        _record(t_ref, 5, "recent 1"),
+        _record(t_ref, 0.5, "recent 2"),
+    ]
+
+    prompt, count = add_analysis_history(
+        user_prompt, records, t_ref, recent_hours=6, context_hours=24
+    )
+
+    assert count == 2
+    assert _history(prompt) == [
+        {
+            "before_current_seconds": 5 * 3600,
+            "title": "recent 1",
+            "diagnosis": "recent 1",
+        },
+        {"before_current_seconds": 1800, "title": "recent 2", "diagnosis": "recent 2"},
+    ]
+    # The current alert is kept as is.
+    assert {k: v for k, v in json.loads(prompt).items() if k != "history"} == (
+        json.loads(user_prompt)
+    )
+
+
+def test_add_analysis_history_falls_back_to_newest_record_in_window() -> None:
+    t_ref = datetime(2026, 10, 11, 12, 0, tzinfo=UTC)
+    user_prompt = json.dumps({"alert": {"title": "now"}})
+    records = [
+        _record(t_ref, 30, "too old"),
+        _record(t_ref, 20, "older"),
+        _record(t_ref, 18, "newest"),
+    ]
+
+    prompt, count = add_analysis_history(
+        user_prompt, records, t_ref, recent_hours=6, context_hours=24
+    )
+
+    assert count == 1
+    assert [
+        (h["before_current_seconds"], h["diagnosis"]) for h in _history(prompt)
+    ] == [(18 * 3600, "newest")]
+    assert add_analysis_history(
+        user_prompt, records[:1], t_ref, recent_hours=6, context_hours=24
+    ) == (user_prompt, 0)
+
+
+def test_add_analysis_history_window_limits() -> None:
+    t_ref = datetime(2026, 10, 11, 12, 0, tzinfo=UTC)
+    user_prompt = json.dumps({"alert": {"title": "now"}})
+    records = [_record(t_ref, 3, "a"), _record(t_ref, 1, "b")]
+
+    def diagnoses(recent_hours: int, context_hours: int, items=records) -> list[str]:
+        prompt, _ = add_analysis_history(
+            user_prompt,
+            items,
+            t_ref,
+            recent_hours=recent_hours,
+            context_hours=context_hours,
+        )
+        return [h["diagnosis"] for h in _history(prompt)]
+
+    # The recent window is capped at the context window.
+    assert diagnoses(48, 2) == ["b"]
+    # Without a recent window only the newest record in range is used.
+    assert diagnoses(0, 24) == ["b"]
+    assert diagnoses(6, 0) == []
+    # Records newer than the current alert are ignored.
+    assert diagnoses(6, 24, [_record(t_ref, -1, "future")]) == []
+
+
+def test_summarize_analysis_keeps_key_readings_and_conclusion() -> None:
+    t_ref = datetime(2026, 10, 11, 12, 0, tzinfo=UTC)
+    user_prompt = json.dumps(
+        {
+            "alert": {"source": "beszel", "title": "Connection to Atlas is down"},
+            "node": {"id": "s1", "hardware": {"cores": 8}},
+            "metrics": {
+                "cpu": {
+                    "latest_pct": 98.2,
+                    "recent_peak_pct": 99.6,
+                    "baseline_pct": 20,
+                },
+                "memory": {"latest_pct": 91.0, "recent_peak_pct": None},
+                "disk": {"baseline_pct": 70.0},
+            },
+            "containers": [{"name": "web", "score": 1.0}, {"name": "db", "score": 0.4}],
+            "quality": {"gaps_detected": True},
+        }
+    )
+    reply = (
+        f"{DIAGNOSIS_PREFIX}可能原因：离线前 CPU 接近满载，可能是 web 容器异常。\n"
+        "优先排查：\n1. 查看 web 容器日志。\n2. 核对内存。"
+    )
+
+    record = summarize_analysis(user_prompt, reply, t_ref)
+
+    assert record.time == t_ref
+    assert record.summary == {
+        "title": "Connection to Atlas is down",
+        "metrics": {
+            "cpu": {"latest_pct": 98.2, "recent_peak_pct": 99.6},
+            "memory": {"latest_pct": 91.0},
+        },
+        "top_containers": ["web", "db"],
+        "diagnosis": "离线前 CPU 接近满载，可能是 web 容器异常。",
+    }
+
+
+def test_summarize_analysis_bounds_unstructured_replies() -> None:
+    t_ref = datetime(2026, 10, 11, 12, 0, tzinfo=UTC)
+    user_prompt = json.dumps({"alert": {"title": "t"}, "metrics": {}, "containers": []})
+
+    ascii_colon = summarize_analysis(user_prompt, "可能原因: 磁盘写满。", t_ref)
+    assert ascii_colon.summary["diagnosis"] == "磁盘写满。"
+
+    custom = summarize_analysis(user_prompt, "自" * 300, t_ref)
+    assert custom.summary["diagnosis"] == "自" * 149 + "…"

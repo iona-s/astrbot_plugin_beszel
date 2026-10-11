@@ -82,7 +82,7 @@
       "analysis_provider_id": {
         "type": "string",
         "description": "AI 诊断使用的模型（留空使用目标会话模型）",
-        "hint": "留空或所选模型不可用时，使用各通知目标会话当前的对话模型",
+        "hint": "留空或所选模型不可用时，按顺序使用第一个能取到模型的通知目标会话当前的对话模型",
         "_special": "select_provider",
         "default": ""
       },
@@ -95,8 +95,26 @@
       "analysis_timeout_seconds": {
         "type": "int",
         "description": "AI 诊断超时时间（秒）",
-        "hint": "单目标模型调用与诊断消息发送的超时时间，范围 1 到 300 秒",
+        "hint": "单次模型调用的超时时间，范围 1 到 300 秒",
         "default": 60
+      },
+      "analysis_context_hours": {
+        "type": "int",
+        "description": "AI 诊断关联历史的最长时间（小时）",
+        "hint": "同一节点在此时间内的诊断会作为后续告警诊断的上下文；0 关闭关联，范围 0 到 168",
+        "default": 24
+      },
+      "analysis_context_recent_hours": {
+        "type": "int",
+        "description": "AI 诊断完整附带历史的近期时间（小时）",
+        "hint": "此时间内同一节点的诊断全部附带，没有时只附带最长时间内的最近一条；范围 0 到 168，超过最长时间时按最长时间处理",
+        "default": 6
+      },
+      "analysis_context_max_records": {
+        "type": "int",
+        "description": "AI 诊断最多附带的历史条数",
+        "hint": "每个节点最多保留并附带的诊断条数，每条约增加 150~300 token 输入；范围 1 到 20",
+        "default": 8
       }
     }
   }

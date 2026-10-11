@@ -10,7 +10,18 @@
 ### 新增
 
 - 新增配置项 `webhook.analysis_provider_id`，可为 AI 诊断单独指定对话模型；留空或所选模型不可用时，
-  使用通知目标会话当前的模型。
+  使用第一个能取到模型的通知目标会话当前的模型。
+- AI 诊断会附带同一节点之前的诊断作为上下文，例如上线告警可结合离线时的诊断说明变化；
+  新增配置项 `webhook.analysis_context_hours`、`webhook.analysis_context_recent_hours` 与
+  `webhook.analysis_context_max_records` 控制附带范围。
+
+### 变更
+
+- 每条告警只调用一次模型，所有通知目标收到同一条 AI 诊断；`analysis_timeout_seconds` 改为单次模型调用的超时时间。
+
+### 修复
+
+- 修复 AI 诊断略超 250 字时被从句子中间截断的问题。
 
 ## [v1.2.0] - 2026-10-07
 

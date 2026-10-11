@@ -446,6 +446,7 @@ class _FakeProvider(Provider):
         self.hang_event = hang_event
         self.exc = exc
         self.calls: list[dict[str, Any]] = []
+        self.called = asyncio.Event()
 
     def get_current_key(self) -> str:
         return ""
@@ -464,14 +465,18 @@ class _FakeProvider(Provider):
         func_tool=None,
         **kwargs,
     ):
-        self.calls.append({"prompt": prompt, "system_prompt": system_prompt})
+        self.calls.append(
+            {"prompt": prompt, "system_prompt": system_prompt, "contexts": contexts}
+        )
+        self.called.set()
+        completion_text, exc = self.completion_text, self.exc
         if self.hang_event is not None:
             await self.hang_event.wait()
-        if self.exc is not None:
-            raise self.exc
+        if exc is not None:
+            raise exc
         from astrbot.core.provider.entities import LLMResponse
 
-        return LLMResponse(role=self.role, completion_text=self.completion_text)
+        return LLMResponse(role=self.role, completion_text=completion_text)
 
 
 @pytest.mark.asyncio
@@ -1379,145 +1384,127 @@ async def test_webhook_history_branch_isolates_target_failures() -> None:
     assert service.calls.count("get_system_history") == 1
 
 
-@pytest.mark.asyncio
-async def test_webhook_analysis_provider_degradations(caplog, monkeypatch) -> None:
-    astrbot_logger = logging.getLogger("astrbot")
-    monkeypatch.setattr(astrbot_logger, "propagate", True)
-    caplog.set_level(logging.DEBUG, logger="astrbot")
-
-    providers = {
-        "target:no_prov": None,
-        "target:select_exc": ValueError("invalid provider type"),
-        "target:exc": _FakeProvider(exc=RuntimeError("LLM API error")),
-        "target:err_role": _FakeProvider(role="err", completion_text="Some error"),
-        "target:empty": _FakeProvider(completion_text="   "),
-        "target:send_false": _FakeProvider(completion_text="诊断结果"),
-        "target:send_exc": _FakeProvider(completion_text="诊断结果"),
-        "target:good": _FakeProvider(completion_text="正常诊断结果"),
-    }
-    targets = tuple(providers.keys())
-    context = _FakeContext(
-        outcomes={
-            ("target:send_false", "analysis"): [False],
-            ("target:send_exc", "analysis"): [RuntimeError("platform down")],
-        },
-        providers=providers,
-    )
-
+def _analysis_delivery(context, **config) -> WebhookDelivery:
     detail = SystemDetailView(
         summary=SystemSummary(id="s1", name="Node", status="up"),
         metrics=SystemMetrics(stats={"cpu": 80.0}),
     )
-    service = _FakeHistoryService(
-        view=SystemHistoryView(
-            summary=SystemSummary(id="s1", name="Node", status="up"),
-            range=HistoryRange.ONE_HOUR,
-        ),
-        detail=detail,
-    )
-    config = WebhookConfig(enabled=True, target_umos=targets)
-    delivery = WebhookDelivery(
+    config.setdefault("target_umos", ("target:umo1",))
+    return WebhookDelivery(
         context=context,
-        config=config,
-        service=service,
+        config=WebhookConfig(enabled=True, **config),
+        service=_FakeHistoryService(detail=detail),
         renderer=_FakeRenderer(),
     )
 
-    notification = NormalizedNotification(
-        request_id="deg-1",
+
+def _analysis_alert(request_id: str, system_id: str = "s1") -> NormalizedNotification:
+    return NormalizedNotification(
+        request_id=request_id,
         source=NotificationSource.BESZEL,
         title="Title",
         message="Msg",
-        history_system_id="s1",
+        history_system_id=system_id,
         send_analysis=True,
     )
 
-    successes = await delivery.deliver(notification)
-    assert successes == len(targets)
 
-    if delivery._background_tasks:
+async def _drain(delivery: WebhookDelivery) -> None:
+    while delivery._background_tasks:
         await asyncio.gather(*list(delivery._background_tasks))
-    await delivery.close()
 
-    # Only targets with a usable reply attempt delivery; failed sends stay isolated.
-    analysis_attempts = [
-        t for t, chain in context.calls if _message_kind(chain) == "analysis"
+
+def _analysis_replies(context: _FakeContext) -> list[tuple[str, str]]:
+    return [
+        (target, chain.get_plain_text())
+        for target, chain in context.calls
+        if _message_kind(chain) == "analysis"
     ]
-    assert analysis_attempts == ["target:send_false", "target:send_exc", "target:good"]
-    assert (
-        "No chat completion provider available for target=target:no_prov" in caplog.text
-    )
-    assert (
-        "provider selection failed for target=target:select_exc (request_id=deg-1): "
-        "ValueError" in caplog.text
-    )
-    assert "LLM text_chat failed for target=target:exc" in caplog.text
-    assert "had non-assistant role: err" in caplog.text
-    assert "completion_text was empty for target=target:empty" in caplog.text
-    assert (
-        "analysis message delivery rejected or unhandled for target=target:send_false"
-        in caplog.text
-    )
-    assert (
-        "analysis delivery failed for target=target:send_exc (request_id=deg-1): "
-        "RuntimeError" in caplog.text
-    )
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("context_cls", [_FakeContext, _FakeAsyncProviderContext])
-async def test_webhook_analysis_provider_lookup_supports_sync_and_async_contexts(
-    context_cls, caplog, monkeypatch
+async def test_webhook_analysis_calls_model_once_for_all_targets(
+    context_cls, astrbot_log_records
 ) -> None:
-    astrbot_logger = logging.getLogger("astrbot")
-    monkeypatch.setattr(astrbot_logger, "propagate", True)
-    caplog.set_level(logging.DEBUG, logger="astrbot")
-
     provider = _FakeProvider(completion_text="诊断结果")
     providers = {
         "target:no_prov": None,
         "target:select_exc": ValueError("invalid provider type"),
         "target:good": provider,
     }
-    targets = tuple(providers)
-    context = context_cls(providers=providers)
-    detail = SystemDetailView(
-        summary=SystemSummary(id="s1", name="Node", status="up"),
-        metrics=SystemMetrics(stats={"cpu": 80.0}),
+    targets = (*providers, "target:send_false", "target:send_exc")
+    context = context_cls(
+        outcomes={
+            ("target:send_false", "analysis"): [False],
+            ("target:send_exc", "analysis"): [RuntimeError("platform down")],
+        },
+        providers=providers,
     )
-    delivery = WebhookDelivery(
-        context=context,
-        config=WebhookConfig(enabled=True, target_umos=targets),
-        service=_FakeHistoryService(detail=detail),
-        renderer=_FakeRenderer(),
-    )
-    notification = NormalizedNotification(
-        request_id="lookup-1",
-        source=NotificationSource.BESZEL,
-        title="Title",
-        message="Msg",
-        history_system_id="s1",
-        send_analysis=True,
-    )
+    delivery = _analysis_delivery(context, target_umos=targets)
 
-    assert await delivery.deliver(notification) == len(targets)
-    if delivery._background_tasks:
-        await asyncio.gather(*list(delivery._background_tasks))
+    assert await delivery.deliver(_analysis_alert("once-1")) == len(targets)
+    await _drain(delivery)
     await delivery.close()
 
-    assert context.provider_lookups == list(targets)
+    # The first target with a provider decides the model; every target is sent
+    # the same diagnosis and failed sends stay isolated.
+    assert context.provider_lookups == list(providers)
     assert len(provider.calls) == 1
-    analysis_targets = [
-        t for t, chain in context.calls if _message_kind(chain) == "analysis"
+    assert [target for target, _ in _analysis_replies(context)] == list(targets)
+    assert {text for _, text in _analysis_replies(context)} == {
+        f"{DIAGNOSIS_PREFIX}诊断结果"
+    }
+    warnings = "\n".join(
+        r.getMessage() for r in astrbot_log_records if r.levelno == logging.WARNING
+    )
+    assert (
+        "provider selection failed for target=target:select_exc (request_id=once-1): "
+        "ValueError" in warnings
+    )
+    assert "rejected or unhandled for target=target:send_false" in warnings
+    assert (
+        "delivery failed for target=target:send_exc (request_id=once-1): RuntimeError"
+        in warnings
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("case", "expected_warning"),
+    [
+        ("no_provider", "No chat completion provider available"),
+        ("exception", "LLM text_chat failed (request_id=fail-1): RuntimeError"),
+        ("wrong_role", "had non-assistant role: err"),
+        ("empty", "completion_text was empty (request_id=fail-1)"),
+        ("timeout", "Webhook analysis timed out (request_id=fail-1, timeout="),
+    ],
+)
+async def test_webhook_analysis_failures_send_no_diagnosis(
+    case, expected_warning, astrbot_log_records
+) -> None:
+    provider = {
+        "no_provider": None,
+        "exception": _FakeProvider(exc=RuntimeError("LLM API error")),
+        "wrong_role": _FakeProvider(role="err", completion_text="Some error"),
+        "empty": _FakeProvider(completion_text="   "),
+        # The provider never answers, so the call can only time out.
+        "timeout": _FakeProvider(hang_event=asyncio.Event()),
+    }[case]
+    context = _FakeContext(providers={"target:a": provider, "target:b": provider})
+    delivery = _analysis_delivery(
+        context, target_umos=("target:a", "target:b"), analysis_timeout_seconds=0.1
+    )
+
+    await delivery.deliver(_analysis_alert("fail-1"))
+    await _drain(delivery)
+    await delivery.close()
+
+    assert _analysis_replies(context) == []
+    warnings = [
+        r.getMessage() for r in astrbot_log_records if r.levelno == logging.WARNING
     ]
-    assert analysis_targets == ["target:good"]
-    assert (
-        "No chat completion provider available for target=target:no_prov" in caplog.text
-    )
-    assert (
-        "provider selection failed for target=target:select_exc (request_id=lookup-1): "
-        "ValueError" in caplog.text
-    )
+    assert any(expected_warning in message for message in warnings)
 
 
 @pytest.mark.asyncio
@@ -1528,7 +1515,7 @@ async def test_webhook_analysis_uses_configured_provider_or_falls_back(
     configured_provider = _FakeProvider(completion_text="指定模型诊断")
     session_providers = {
         "target:a": _FakeProvider(completion_text="会话模型诊断"),
-        "target:b": _FakeProvider(completion_text="会话模型诊断"),
+        "target:b": _FakeProvider(completion_text="另一会话模型诊断"),
     }
     providers_by_id = {
         "chat": {"fixture-provider": configured_provider},
@@ -1536,115 +1523,128 @@ async def test_webhook_analysis_uses_configured_provider_or_falls_back(
         "not_chat": {"fixture-provider": object()},
     }[configured]
     context = _FakeContext(providers=session_providers, providers_by_id=providers_by_id)
-    detail = SystemDetailView(
-        summary=SystemSummary(id="s1", name="Node", status="up"),
-        metrics=SystemMetrics(stats={"cpu": 80.0}),
-    )
-    delivery = WebhookDelivery(
-        context=context,
-        config=WebhookConfig(
-            enabled=True,
-            target_umos=tuple(session_providers),
-            analysis_provider_id="fixture-provider",
-        ),
-        service=_FakeHistoryService(detail=detail),
-        renderer=_FakeRenderer(),
-    )
-    notification = NormalizedNotification(
-        request_id="pick-1",
-        source=NotificationSource.BESZEL,
-        title="Title",
-        message="Msg",
-        history_system_id="s1",
-        send_analysis=True,
+    delivery = _analysis_delivery(
+        context,
+        target_umos=tuple(session_providers),
+        analysis_provider_id="fixture-provider",
     )
 
-    await delivery.deliver(notification)
-    if delivery._background_tasks:
-        await asyncio.gather(*list(delivery._background_tasks))
+    await delivery.deliver(_analysis_alert("pick-1"))
+    await _drain(delivery)
     await delivery.close()
 
-    replies = {
-        target: chain.get_plain_text()
-        for target, chain in context.calls
-        if _message_kind(chain) == "analysis"
-    }
     warnings = [
         r.getMessage() for r in astrbot_log_records if r.levelno == logging.WARNING
     ]
     if configured == "chat":
-        assert len(configured_provider.calls) == 2
+        expected = f"{DIAGNOSIS_PREFIX}指定模型诊断"
+        assert len(configured_provider.calls) == 1
         assert context.provider_lookups == []
-        assert replies == {
-            "target:a": f"{DIAGNOSIS_PREFIX}指定模型诊断",
-            "target:b": f"{DIAGNOSIS_PREFIX}指定模型诊断",
-        }
         assert warnings == []
     else:
+        expected = f"{DIAGNOSIS_PREFIX}会话模型诊断"
         assert configured_provider.calls == []
-        assert context.provider_lookups == ["target:a", "target:b"]
-        assert replies == {
-            "target:a": f"{DIAGNOSIS_PREFIX}会话模型诊断",
-            "target:b": f"{DIAGNOSIS_PREFIX}会话模型诊断",
-        }
+        assert context.provider_lookups == ["target:a"]
         assert len(warnings) == 1
         assert "analysis provider fixture-provider is missing" in warnings[0]
+    assert session_providers["target:b"].calls == []
+    assert _analysis_replies(context) == [
+        ("target:a", expected),
+        ("target:b", expected),
+    ]
 
 
 @pytest.mark.asyncio
-async def test_webhook_analysis_timeout_handling(caplog, monkeypatch) -> None:
-    astrbot_logger = logging.getLogger("astrbot")
-    monkeypatch.setattr(astrbot_logger, "propagate", True)
-    caplog.set_level(logging.DEBUG, logger="astrbot")
+async def test_webhook_analysis_includes_earlier_diagnoses_of_same_node() -> None:
+    provider = _FakeProvider()
+    context = _FakeContext(providers={"target:umo1": provider})
+    delivery = _analysis_delivery(context, analysis_context_max_records=2)
 
-    hang_ev = asyncio.Event()
-    providers = {
-        "target:slow": _FakeProvider(hang_event=hang_ev),
-        "target:fast": _FakeProvider(completion_text="快速诊断"),
-    }
-    context = _FakeContext(providers=providers)
-    detail = SystemDetailView(
-        summary=SystemSummary(id="s1", name="Node", status="up"),
-        metrics=SystemMetrics(stats={"cpu": 80.0}),
-    )
-    service = _FakeHistoryService(
-        view=SystemHistoryView(
-            summary=SystemSummary(id="s1", name="Node", status="up"),
-            range=HistoryRange.ONE_HOUR,
-        ),
-        detail=detail,
-    )
-    config = WebhookConfig(
-        enabled=True,
-        target_umos=("target:slow", "target:fast"),
-        analysis_timeout_seconds=0.1,
-    )
-    delivery = WebhookDelivery(
-        context=context,
-        config=config,
-        service=service,
-        renderer=_FakeRenderer(),
-    )
+    async def analyze(reply: str, system_id: str = "s1", exc=None) -> list[str]:
+        provider.completion_text, provider.exc = reply, exc
+        await delivery.deliver(_analysis_alert(reply, system_id))
+        await _drain(delivery)
+        call = provider.calls[-1]
+        assert call["contexts"] == []
+        history = json.loads(call["prompt"]).get("history", [])
+        assert all(entry["before_current_seconds"] >= 0 for entry in history)
+        return [entry["diagnosis"] for entry in history]
 
-    notification = NormalizedNotification(
-        request_id="timeout-1",
-        source=NotificationSource.BESZEL,
-        title="Title",
-        message="Msg",
-        history_system_id="s1",
-        send_analysis=True,
-    )
-
-    await delivery.deliver(notification)
-    if delivery._background_tasks:
-        await asyncio.gather(*list(delivery._background_tasks))
+    assert await analyze("down") == []
+    assert await analyze("up") == ["down"]
+    # Failed analyses are not kept.
+    assert await analyze("failed", exc=RuntimeError("LLM API error")) == ["down", "up"]
+    assert await analyze("down again") == ["down", "up"]
+    # Only the newest ``analysis_context_max_records`` diagnoses are kept.
+    assert await analyze("up again") == ["up", "down again"]
+    # History is kept per node.
+    assert await analyze("other node", system_id="s2") == []
     await delivery.close()
 
-    analysis_calls = [
-        t for t, chain in context.calls if "[Beszel AI 诊断]" in chain.get_plain_text()
+    # Each entry keeps the earlier title, key readings, and conclusion only.
+    entry = json.loads(provider.calls[1]["prompt"])["history"][0]
+    assert set(entry) == {
+        "before_current_seconds",
+        "title",
+        "metrics",
+        "top_containers",
+        "diagnosis",
+    }
+    assert entry["title"] == "Title"
+    assert entry["metrics"]["cpu"]["latest_pct"] == 80.0
+
+
+@pytest.mark.asyncio
+async def test_webhook_analysis_history_can_be_disabled() -> None:
+    provider = _FakeProvider()
+    context = _FakeContext(providers={"target:umo1": provider})
+    delivery = _analysis_delivery(context, analysis_context_hours=0)
+
+    for request_id in ("first", "second"):
+        await delivery.deliver(_analysis_alert(request_id))
+        await _drain(delivery)
+    await delivery.close()
+
+    assert ["history" in json.loads(call["prompt"]) for call in provider.calls] == [
+        False,
+        False,
     ]
-    assert analysis_calls == ["target:fast"]
-    assert "Webhook analysis timed out for target=target:slow" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_webhook_analysis_waits_for_running_analysis_of_same_node() -> None:
+    release_first = asyncio.Event()
+    provider = _FakeProvider(completion_text="离线诊断", hang_event=release_first)
+    context = _FakeContext(providers={"target:umo1": provider})
+    delivery = _analysis_delivery(context)
+    detail = delivery.service.detail
+
+    await delivery.deliver(_analysis_alert("down"))
+    await asyncio.wait_for(provider.called.wait(), timeout=5)
+    # An alert without usable metrics in between must not break the order.
+    delivery.service.detail = None
+    await delivery.deliver(_analysis_alert("no-metrics"))
+    for _ in range(20):
+        await asyncio.sleep(0)
+    delivery.service.detail = detail
+    provider.completion_text = "上线诊断"
+    await delivery.deliver(_analysis_alert("up"))
+    for _ in range(20):
+        await asyncio.sleep(0)
+    # The second analysis cannot call the model before the first one finishes.
+    assert len(provider.calls) == 1
+
+    release_first.set()
+    await _drain(delivery)
+    await delivery.close()
+
+    assert len(provider.calls) == 2
+    history = json.loads(provider.calls[1]["prompt"])["history"]
+    assert [entry["diagnosis"] for entry in history] == ["离线诊断"]
+    assert [text for _, text in _analysis_replies(context)] == [
+        f"{DIAGNOSIS_PREFIX}离线诊断",
+        f"{DIAGNOSIS_PREFIX}上线诊断",
+    ]
 
 
 @pytest.mark.asyncio

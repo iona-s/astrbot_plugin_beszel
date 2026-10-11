@@ -22,6 +22,15 @@ def test_minimal_config_uses_documented_defaults(config_data) -> None:
     assert (
         config.webhook.analysis_timeout_seconds == expected["analysis_timeout_seconds"]
     )
+    assert config.webhook.analysis_context_hours == expected["analysis_context_hours"]
+    assert (
+        config.webhook.analysis_context_recent_hours
+        == expected["analysis_context_recent_hours"]
+    )
+    assert (
+        config.webhook.analysis_context_max_records
+        == expected["analysis_context_max_records"]
+    )
 
 
 def test_complete_config_normalizes_values(config_data) -> None:
@@ -45,6 +54,15 @@ def test_complete_config_normalizes_values(config_data) -> None:
     assert config.webhook.analysis_prompt == expected["analysis_prompt"]
     assert (
         config.webhook.analysis_timeout_seconds == expected["analysis_timeout_seconds"]
+    )
+    assert config.webhook.analysis_context_hours == expected["analysis_context_hours"]
+    assert (
+        config.webhook.analysis_context_recent_hours
+        == expected["analysis_context_recent_hours"]
+    )
+    assert (
+        config.webhook.analysis_context_max_records
+        == expected["analysis_context_max_records"]
     )
 
 
@@ -206,3 +224,13 @@ def test_analysis_config_cases(config_data, case_name: str) -> None:
 def test_analysis_prompt_oversize_falls_back_to_empty() -> None:
     config = PluginConfig.from_mapping({"webhook": {"analysis_prompt": "a" * 4097}})
     assert config.webhook.analysis_prompt == ""
+
+
+def test_analysis_context_config_cases(config_data) -> None:
+    for case in config_data["analysis_context_cases"]:
+        webhook = PluginConfig.from_mapping({"webhook": case["raw"]}).webhook
+        assert [
+            webhook.analysis_context_hours,
+            webhook.analysis_context_recent_hours,
+            webhook.analysis_context_max_records,
+        ] == case["expected"], case["raw"]
