@@ -133,6 +133,7 @@
 - **`token`**：Bearer Token 鉴权密钥（留空保存后插件将自动生成随机安全密钥）。该值同样会由 AstrBot 明文保存并显示，请按凭据管理
 - **`target_umos`**：接收告警推送的目标 UMO 列表（至少填写一个）
 - **`analysis_provider_id`**：AI 诊断使用的对话模型（留空或所选模型不可用时，按顺序使用第一个能取到模型的目标会话当前的模型）
+- **`analysis_persona_id`**：AI 诊断使用的 AstrBot 人格（留空不使用；选择后只影响诊断的身份与语气，格式与篇幅仍按诊断要求）
 - **`analysis_prompt`**：LLM 根因分析自定义 System Prompt（留空使用内置预设，填入非空内容将完全替换，最大 4096 字符）
 - **`analysis_timeout_seconds`**：单次模型调用的超时时间（秒，默认 `60`，范围 `1 ~ 300`；不影响 HTTP 响应与 Hub 查询超时）
 - **`analysis_context_hours`** / **`analysis_context_recent_hours`** / **`analysis_context_max_records`**：同一节点历史诊断的关联方式。近期时间（默认 `6` 小时）内的诊断全部附带；没有时只附带最长时间（默认 `24` 小时，`0` 关闭）内最近一条；最多附带 `8` 条（范围 `1 ~ 20`）。历史仅保存在内存中，重启或重载插件后清空

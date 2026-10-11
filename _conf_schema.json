@@ -86,6 +86,13 @@
         "_special": "select_provider",
         "default": ""
       },
+      "analysis_persona_id": {
+        "type": "string",
+        "description": "AI 诊断使用的人格（留空不使用）",
+        "hint": "选择后在诊断提示词前加入该人格的设定，只影响身份与语气；诊断的格式与篇幅要求优先",
+        "_special": "select_persona",
+        "default": ""
+      },
       "analysis_prompt": {
         "type": "text",
         "description": "自定义 AI 根因分析提示词（留空使用默认）",

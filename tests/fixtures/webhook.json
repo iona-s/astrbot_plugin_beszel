@@ -130,6 +130,14 @@
     }
   },
   "hostile_json": {"integer_digits": 5000, "nesting_depth": 8000},
+  "personas": {
+    "fixture-persona": {
+      "name": "fixture-persona",
+      "prompt": "你是名叫 Fixture 的运维助手，回答时语气轻松。",
+      "begin_dialogs": []
+    },
+    "fixture-empty": {"name": "fixture-empty", "prompt": "  ", "begin_dialogs": []}
+  },
   "escaped_cjk": {
     "content_type": "application/json",
     "headers": {},

@@ -13,6 +13,7 @@ from astrbot.core.message.components import Image, Plain
 from astrbot_plugin_beszel.core.analysis import (
     DEFAULT_ANALYSIS_PROMPT,
     DIAGNOSIS_PREFIX,
+    PERSONA_TASK_HEADER,
 )
 from astrbot_plugin_beszel.core.beszel.models import (
     ContainerHistoryMetrics,
@@ -334,6 +335,16 @@ def _message_kind(message_chain) -> str:
     return "text"
 
 
+class _FakePersonaManager:
+    def __init__(self, personas: dict[str, Any] | None = None) -> None:
+        self.personas = personas or {}
+        self.lookups: list[str] = []
+
+    def get_persona_v3_by_id(self, persona_id: str):
+        self.lookups.append(persona_id)
+        return self.personas.get(persona_id)
+
+
 class _FakeContext:
     """Fake platform whose send results are keyed by ``(target, kind)``.
 
@@ -347,7 +358,9 @@ class _FakeContext:
         providers: dict[str, Any] | None = None,
         on_send: Any | None = None,
         providers_by_id: dict[str, Any] | None = None,
+        personas: dict[str, Any] | None = None,
     ) -> None:
+        self.persona_manager = _FakePersonaManager(personas)
         self.outcomes = outcomes or {}
         self.providers = providers if providers is not None else {}
         self.providers_by_id = providers_by_id or {}
@@ -1606,6 +1619,44 @@ async def test_webhook_analysis_includes_earlier_diagnoses_of_same_node() -> Non
     }
     assert entry["title"] == "Title"
     assert entry["metrics"]["cpu_pct"]["latest"] == 80.0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("persona_id", ["", "fixture-persona", "fixture-empty", "gone"])
+async def test_webhook_analysis_prepends_configured_persona(
+    persona_id, webhook_data, astrbot_log_records
+) -> None:
+    provider = _FakeProvider()
+    context = _FakeContext(
+        providers={"target:umo1": provider}, personas=webhook_data["personas"]
+    )
+    delivery = _analysis_delivery(context, analysis_persona_id=persona_id)
+
+    await delivery.deliver(_analysis_alert("persona-1"))
+    await _drain(delivery)
+    await delivery.close()
+
+    system_prompt = provider.calls[0]["system_prompt"]
+    warnings = [
+        r.getMessage() for r in astrbot_log_records if r.levelno == logging.WARNING
+    ]
+    if persona_id == "fixture-persona":
+        persona_prompt = webhook_data["personas"][persona_id]["prompt"]
+        # The persona sets identity and tone; the task requirements follow it.
+        assert system_prompt == (
+            f"{persona_prompt}\n\n{PERSONA_TASK_HEADER}\n{DEFAULT_ANALYSIS_PROMPT}"
+        )
+        assert warnings == []
+    else:
+        assert system_prompt == DEFAULT_ANALYSIS_PROMPT
+    if persona_id == "":
+        assert context.persona_manager.lookups == []
+        assert warnings == []
+    elif persona_id != "fixture-persona":
+        assert warnings == [
+            f"Configured analysis persona {persona_id} is missing or has no prompt; "
+            "analysing without it (request_id=persona-1)"
+        ]
 
 
 @pytest.mark.asyncio

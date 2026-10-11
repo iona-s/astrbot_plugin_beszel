@@ -15,6 +15,7 @@ from astrbot.core.message.message_event_result import MessageChain
 
 from ..analysis import (
     DEFAULT_ANALYSIS_PROMPT,
+    PERSONA_TASK_HEADER,
     AnalysisRecord,
     add_analysis_history,
     extract_analysis_context,
@@ -386,12 +387,29 @@ class WebhookDelivery:
             )
             return None
 
+        system_prompt = self.config.analysis_prompt or DEFAULT_ANALYSIS_PROMPT
+        if self.config.analysis_persona_id:
+            persona = self.context.persona_manager.get_persona_v3_by_id(
+                self.config.analysis_persona_id
+            )
+            persona_prompt = (persona.get("prompt") or "").strip() if persona else ""
+            if persona_prompt:
+                system_prompt = (
+                    f"{persona_prompt}\n\n{PERSONA_TASK_HEADER}\n{system_prompt}"
+                )
+            else:
+                logger.warning(
+                    "Configured analysis persona %s is missing or has no prompt; "
+                    "analysing without it (request_id=%s)",
+                    self.config.analysis_persona_id,
+                    request_id,
+                )
+
         try:
             resp = await asyncio.wait_for(
                 provider.text_chat(
                     prompt=user_prompt,
-                    system_prompt=self.config.analysis_prompt
-                    or DEFAULT_ANALYSIS_PROMPT,
+                    system_prompt=system_prompt,
                     contexts=[],
                     func_tool=None,
                 ),
