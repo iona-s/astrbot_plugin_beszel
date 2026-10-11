@@ -8,6 +8,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from astrbot.api import logger
+from astrbot.api.provider import Provider
 from astrbot.core.message.components import Image, Plain
 from astrbot.core.message.message_event_result import MessageChain
 
@@ -248,6 +249,19 @@ class WebhookDelivery:
 
         effective_system_prompt = self.config.analysis_prompt or DEFAULT_ANALYSIS_PROMPT
 
+        configured_provider: Provider | None = None
+        if self.config.analysis_provider_id:
+            found = self.context.get_provider_by_id(self.config.analysis_provider_id)
+            if isinstance(found, Provider):
+                configured_provider = found
+            else:
+                logger.warning(
+                    "Configured analysis provider %s is missing or not a chat provider; "
+                    "using each target's session provider (request_id=%s)",
+                    self.config.analysis_provider_id,
+                    notification.request_id,
+                )
+
         for target in self.config.target_umos:
             if self._closed:
                 break
@@ -255,6 +269,7 @@ class WebhookDelivery:
                 await asyncio.wait_for(
                     self._deliver_analysis_to_target(
                         target,
+                        configured_provider,
                         user_prompt,
                         effective_system_prompt,
                         notification.request_id,
@@ -279,26 +294,30 @@ class WebhookDelivery:
     async def _deliver_analysis_to_target(
         self,
         target: str,
+        provider: Provider | None,
         user_prompt: str,
         system_prompt: str,
         request_id: str,
     ) -> None:
-        try:
-            # AstrBot 4.27.3 deprecates the sync lookup, which may query the
-            # database on the event loop; 4.25 only provides the sync form.
-            provider_getter = getattr(self.context, "get_using_provider_async", None)
-            if provider_getter is not None:
-                provider = await provider_getter(target)
-            else:
-                provider = self.context.get_using_provider(target)
-        except Exception as exc:
-            logger.warning(
-                "Webhook provider selection failed for target=%s (request_id=%s): %s",
-                target,
-                request_id,
-                type(exc).__name__,
-            )
-            return
+        if provider is None:
+            try:
+                # AstrBot 4.27.3 deprecates the sync lookup, which may query the
+                # database on the event loop; 4.25 only provides the sync form.
+                provider_getter = getattr(
+                    self.context, "get_using_provider_async", None
+                )
+                if provider_getter is not None:
+                    provider = await provider_getter(target)
+                else:
+                    provider = self.context.get_using_provider(target)
+            except Exception as exc:
+                logger.warning(
+                    "Webhook provider selection failed for target=%s (request_id=%s): %s",
+                    target,
+                    request_id,
+                    type(exc).__name__,
+                )
+                return
 
         if provider is None:
             logger.warning(

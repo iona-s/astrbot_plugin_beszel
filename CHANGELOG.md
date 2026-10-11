@@ -5,6 +5,13 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，并遵循
 [语义化版本 2.0.0](https://semver.org/lang/zh-CN/)。
 
+## [未发布]
+
+### 新增
+
+- 新增配置项 `webhook.analysis_provider_id`，可为 AI 诊断单独指定对话模型；留空或所选模型不可用时，
+  使用通知目标会话当前的模型。
+
 ## [v1.2.0] - 2026-10-07
 
 ### 新增

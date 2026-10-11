@@ -8,6 +8,7 @@ from datetime import UTC
 from typing import Any
 
 import pytest
+from astrbot.api.provider import Provider
 from astrbot.core.message.components import Image, Plain
 from astrbot_plugin_beszel.core.analysis import (
     DEFAULT_ANALYSIS_PROMPT,
@@ -343,12 +344,17 @@ class _FakeContext:
         outcomes: dict[tuple[str, str], list[Any]] | None = None,
         providers: dict[str, Any] | None = None,
         on_send: Any | None = None,
+        providers_by_id: dict[str, Any] | None = None,
     ) -> None:
         self.outcomes = outcomes or {}
         self.providers = providers if providers is not None else {}
+        self.providers_by_id = providers_by_id or {}
         self.calls: list[tuple[str, Any]] = []
         self.provider_lookups: list[str] = []
         self.on_send = on_send
+
+    def get_provider_by_id(self, provider_id: str):
+        return self.providers_by_id.get(provider_id)
 
     def get_using_provider(self, target: str):
         self.provider_lookups.append(target)
@@ -427,7 +433,7 @@ class _FakeHistoryService:
         return self.detail
 
 
-class _FakeProvider:
+class _FakeProvider(Provider):
     def __init__(
         self,
         completion_text: str = "这是诊断建议",
@@ -440,6 +446,15 @@ class _FakeProvider:
         self.hang_event = hang_event
         self.exc = exc
         self.calls: list[dict[str, Any]] = []
+
+    def get_current_key(self) -> str:
+        return ""
+
+    def set_key(self, key: str) -> None:
+        pass
+
+    async def get_models(self) -> list[str]:
+        return []
 
     async def text_chat(
         self,
@@ -1503,6 +1518,77 @@ async def test_webhook_analysis_provider_lookup_supports_sync_and_async_contexts
         "provider selection failed for target=target:select_exc (request_id=lookup-1): "
         "ValueError" in caplog.text
     )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("configured", ["chat", "missing", "not_chat"])
+async def test_webhook_analysis_uses_configured_provider_or_falls_back(
+    configured, astrbot_log_records
+) -> None:
+    configured_provider = _FakeProvider(completion_text="指定模型诊断")
+    session_providers = {
+        "target:a": _FakeProvider(completion_text="会话模型诊断"),
+        "target:b": _FakeProvider(completion_text="会话模型诊断"),
+    }
+    providers_by_id = {
+        "chat": {"fixture-provider": configured_provider},
+        "missing": {},
+        "not_chat": {"fixture-provider": object()},
+    }[configured]
+    context = _FakeContext(providers=session_providers, providers_by_id=providers_by_id)
+    detail = SystemDetailView(
+        summary=SystemSummary(id="s1", name="Node", status="up"),
+        metrics=SystemMetrics(stats={"cpu": 80.0}),
+    )
+    delivery = WebhookDelivery(
+        context=context,
+        config=WebhookConfig(
+            enabled=True,
+            target_umos=tuple(session_providers),
+            analysis_provider_id="fixture-provider",
+        ),
+        service=_FakeHistoryService(detail=detail),
+        renderer=_FakeRenderer(),
+    )
+    notification = NormalizedNotification(
+        request_id="pick-1",
+        source=NotificationSource.BESZEL,
+        title="Title",
+        message="Msg",
+        history_system_id="s1",
+        send_analysis=True,
+    )
+
+    await delivery.deliver(notification)
+    if delivery._background_tasks:
+        await asyncio.gather(*list(delivery._background_tasks))
+    await delivery.close()
+
+    replies = {
+        target: chain.get_plain_text()
+        for target, chain in context.calls
+        if _message_kind(chain) == "analysis"
+    }
+    warnings = [
+        r.getMessage() for r in astrbot_log_records if r.levelno == logging.WARNING
+    ]
+    if configured == "chat":
+        assert len(configured_provider.calls) == 2
+        assert context.provider_lookups == []
+        assert replies == {
+            "target:a": f"{DIAGNOSIS_PREFIX}指定模型诊断",
+            "target:b": f"{DIAGNOSIS_PREFIX}指定模型诊断",
+        }
+        assert warnings == []
+    else:
+        assert configured_provider.calls == []
+        assert context.provider_lookups == ["target:a", "target:b"]
+        assert replies == {
+            "target:a": f"{DIAGNOSIS_PREFIX}会话模型诊断",
+            "target:b": f"{DIAGNOSIS_PREFIX}会话模型诊断",
+        }
+        assert len(warnings) == 1
+        assert "analysis provider fixture-provider is missing" in warnings[0]
 
 
 @pytest.mark.asyncio

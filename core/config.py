@@ -88,6 +88,7 @@ class WebhookConfig:
     target_umos: tuple[str, ...] = ()
     # True when ``token`` was generated here and still needs to be persisted.
     token_generated: bool = False
+    analysis_provider_id: str = ""
     analysis_prompt: str = ""
     analysis_timeout_seconds: int = 60
 
@@ -312,6 +313,7 @@ class PluginConfig:
                 token=token,
                 target_umos=target_umos,
                 token_generated=token_generated,
+                analysis_provider_id=_opt_str(webhook_raw.get("analysis_provider_id")),
                 analysis_prompt=analysis_prompt,
                 analysis_timeout_seconds=analysis_timeout_seconds,
             ),

@@ -132,6 +132,7 @@
 - **`path`**：接收路径（默认 `/`）
 - **`token`**：Bearer Token 鉴权密钥（留空保存后插件将自动生成随机安全密钥）。该值同样会由 AstrBot 明文保存并显示，请按凭据管理
 - **`target_umos`**：接收告警推送的目标 UMO 列表（至少填写一个）
+- **`analysis_provider_id`**：AI 诊断使用的对话模型（留空或所选模型不可用时，使用各目标会话当前的模型）
 - **`analysis_prompt`**：LLM 根因分析自定义 System Prompt（留空使用内置预设，填入非空内容将完全替换，最大 4096 字符）
 - **`analysis_timeout_seconds`**：单目标模型调用与诊断消息发送的超时时间（秒，默认 `60`，范围 `1 ~ 300`；不影响 HTTP 响应与 Hub 查询超时）
 
@@ -176,7 +177,7 @@ generic://127.0.0.1:8899/?template=json&disabletls=yes&@Authorization=Bearer%20<
 ```
 
 #### ③ 进阶增强：告警附加大模型智能根因诊断（插件特殊特性）
-通过在 URL 中附加 `$source=beszel` 与 `$send_analysis=true` 参数，插件在收到该告警后，**会自动提取故障节点过去 1 小时的时序与容器特征，调用目标会话的大模型生成针对性的辅助诊断与排查建议**：
+通过在 URL 中附加 `$source=beszel` 与 `$send_analysis=true` 参数，插件在收到该告警后，**会自动提取故障节点过去 1 小时的时序与容器特征，调用 `analysis_provider_id` 指定的模型（未指定时为目标会话的模型）生成针对性的辅助诊断与排查建议**：
 ```text
 generic://127.0.0.1:8899/?template=json&disabletls=yes&@Authorization=Bearer%20<TOKEN>&$source=beszel&$send_analysis=true
 ```

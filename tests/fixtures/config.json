@@ -28,6 +28,7 @@
       "path": "notify",
       "token": "fixture-webhook-token",
       "target_umos": ["aiocqhttp:group:fixture", ""],
+      "analysis_provider_id": "  fixture-provider  ",
       "analysis_prompt": "Custom analysis prompt",
       "analysis_timeout_seconds": 30
     }
@@ -175,6 +176,7 @@
       "render_scale": 100,
       "webhook_enabled": false,
       "cache_ttl_seconds": 60,
+      "analysis_provider_id": "",
       "analysis_prompt": "",
       "analysis_timeout_seconds": 60
     },
@@ -190,6 +192,7 @@
       "webhook_token": "fixture-webhook-token",
       "webhook_target_umos": ["aiocqhttp:group:fixture"],
       "cache_ttl_seconds": 120,
+      "analysis_provider_id": "fixture-provider",
       "analysis_prompt": "Custom analysis prompt",
       "analysis_timeout_seconds": 30
     },

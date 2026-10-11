@@ -17,6 +17,7 @@ def test_minimal_config_uses_documented_defaults(config_data) -> None:
     assert config.render.page_size == expected["page_size"]
     assert config.render.render_scale == expected["render_scale"]
     assert config.webhook.enabled is expected["webhook_enabled"]
+    assert config.webhook.analysis_provider_id == expected["analysis_provider_id"]
     assert config.webhook.analysis_prompt == expected["analysis_prompt"]
     assert (
         config.webhook.analysis_timeout_seconds == expected["analysis_timeout_seconds"]
@@ -40,6 +41,7 @@ def test_complete_config_normalizes_values(config_data) -> None:
     assert config.webhook.enabled is expected["webhook_enabled"]
     assert config.webhook.token == expected["webhook_token"]
     assert config.webhook.target_umos == tuple(expected["webhook_target_umos"])
+    assert config.webhook.analysis_provider_id == expected["analysis_provider_id"]
     assert config.webhook.analysis_prompt == expected["analysis_prompt"]
     assert (
         config.webhook.analysis_timeout_seconds == expected["analysis_timeout_seconds"]

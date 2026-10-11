@@ -79,6 +79,13 @@
         "default": ""
       },
       "target_umos": {"type": "list", "description": "通知目标 UMO", "items": {"type": "string"}, "default": []},
+      "analysis_provider_id": {
+        "type": "string",
+        "description": "AI 诊断使用的模型（留空使用目标会话模型）",
+        "hint": "留空或所选模型不可用时，使用各通知目标会话当前的对话模型",
+        "_special": "select_provider",
+        "default": ""
+      },
       "analysis_prompt": {
         "type": "text",
         "description": "自定义 AI 根因分析提示词（留空使用默认）",
