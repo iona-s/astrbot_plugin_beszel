@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from datetime import UTC, datetime
 
 import pytest
@@ -8,6 +9,7 @@ from astrbot_plugin_beszel.core.beszel.models import (
     ContainerHistoryMetrics,
     HistoryRange,
     SystemDetails,
+    SystemHealthView,
     SystemMetrics,
     SystemSummary,
 )
@@ -308,6 +310,64 @@ async def test_independent_hub_reads_run_concurrently(
 
     assert started == set(client_methods)
     assert view.summary.id == query_data["detail_system_id"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "failing",
+    [
+        None,
+        "list_container_states",
+        "list_failed_services",
+        "list_failed_smart_devices",
+    ],
+)
+async def test_system_health_keeps_parts_that_succeeded(
+    failing, fixture_client, query_data, astrbot_log_records
+) -> None:
+    expected = SystemHealthView.model_validate(query_data["health"])
+    fixture_client.list_container_states = _returning(expected.containers)
+    fixture_client.list_failed_services = _returning(expected.failed_services)
+    fixture_client.list_failed_smart_devices = _returning(expected.failed_smart_devices)
+    if failing is not None:
+
+        async def failing_call(*_args):
+            raise BeszelTransportError("fixture failure", status_code=500)
+
+        setattr(fixture_client, failing, failing_call)
+    service = QueryService(fixture_client, default_history_range=HistoryRange.ONE_HOUR)
+
+    health = await service.get_system_health(query_data["detail_system_id"])
+
+    part = {
+        None: None,
+        "list_container_states": "containers",
+        "list_failed_services": "failed_services",
+        "list_failed_smart_devices": "failed_smart_devices",
+    }[failing]
+    assert health == expected.model_copy(update={part: None} if part else {})
+    warnings = [
+        r.getMessage() for r in astrbot_log_records if r.levelno == logging.WARNING
+    ]
+    if failing is None:
+        assert warnings == []
+    else:
+        collection = {
+            "list_container_states": "containers",
+            "list_failed_services": "systemd_services",
+            "list_failed_smart_devices": "smart_devices",
+        }[failing]
+        assert warnings == [
+            f"Beszel {collection} query failed for system_id="
+            f"{query_data['detail_system_id']}: BeszelTransportError"
+        ]
+
+
+def _returning(value):
+    async def call(*_args):
+        return value
+
+    return call
 
 
 @pytest.mark.asyncio

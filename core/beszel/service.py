@@ -17,6 +17,7 @@ from .models import (
     HistoryRange,
     SystemDetails,
     SystemDetailView,
+    SystemHealthView,
     SystemHistoryPoint,
     SystemHistoryView,
     SystemSummary,
@@ -119,6 +120,46 @@ class QueryService:
             details=details,
             metrics=metrics,
             containers=containers,
+        )
+
+    async def get_system_health(self, system_id: str) -> SystemHealthView:
+        """Read container states, failed services, and failed SMART disks.
+
+        The three reads are independent: a failed read is logged and leaves its
+        part ``None`` while the others are still returned.
+
+        Args:
+            system_id: Beszel system record ID.
+
+        Returns:
+            The health view of the system.
+        """
+        results = await asyncio.gather(
+            self.client.list_container_states(system_id),
+            self.client.list_failed_services(system_id),
+            self.client.list_failed_smart_devices(system_id),
+            return_exceptions=True,
+        )
+        parts: list[list | None] = []
+        for collection, result in zip(
+            ("containers", "systemd_services", "smart_devices"), results, strict=True
+        ):
+            if isinstance(result, BaseException):
+                if not isinstance(result, Exception):
+                    raise result
+                logger.warning(
+                    "Beszel %s query failed for system_id=%s: %s",
+                    collection,
+                    system_id,
+                    type(result).__name__,
+                )
+                parts.append(None)
+            else:
+                parts.append(result)
+        return SystemHealthView(
+            containers=parts[0],
+            failed_services=parts[1],
+            failed_smart_devices=parts[2],
         )
 
     async def get_system_history(

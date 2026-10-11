@@ -440,6 +440,32 @@ async def test_latest_containers_ignore_non_list_stats(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("method", "collection"),
+    [
+        ("list_container_states", "containers"),
+        ("list_failed_services", "systemd_services"),
+        ("list_failed_smart_devices", "smart_devices"),
+    ],
+)
+async def test_health_queries_filter_by_system_and_skip_invalid_records(
+    method, collection, client_data, config_data, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    case = client_data["health_records"][collection]
+    session = _records_session(client_data, case["items"])
+    client = _client_with_session(config_data, session, monkeypatch)
+
+    items = await getattr(client, method)(client_data["system_id"])
+    await client.close()
+
+    assert [item.model_dump() for item in items] == case["valid"]
+    request = session.requests[-1]
+    assert request["path"] == f"/api/collections/{collection}/records"
+    assert request["params"]["fields"] == case["fields"]
+    assert request["params"]["filter"] == case["filter"]
+
+
+@pytest.mark.asyncio
 async def test_client_retries_once_after_unauthorized(
     client_data, config_data, monkeypatch: pytest.MonkeyPatch
 ) -> None:

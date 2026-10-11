@@ -12,6 +12,7 @@ from urllib.parse import quote
 
 import aiohttp
 from astrbot.api import logger
+from pydantic import BaseModel
 
 from ..config import BeszelConfig
 from ..errors import (
@@ -22,9 +23,12 @@ from ..errors import (
 )
 from .models import (
     ContainerHistoryMetrics,
+    ContainerState,
     ContainerStats,
     HistoryRange,
     PocketBaseListResult,
+    ServiceState,
+    SmartDeviceState,
     SystemDetails,
     SystemMetrics,
     SystemSummary,
@@ -35,6 +39,8 @@ MAX_RESPONSE_BYTES = 8 * 1024 * 1024
 TOKEN_RENEWAL_MARGIN_SECONDS = 60
 TOKEN_FALLBACK_LIFETIME_SECONDS = 3600
 SYSTEM_FIELDS = "id,name,status,updated,info,host,port"
+# Beszel systemd ServiceState value for failed units.
+SERVICE_STATE_FAILED = 2
 
 
 class BeszelClient:
@@ -419,6 +425,57 @@ class BeszelClient:
                     type(exc).__name__,
                 )
         return containers
+
+    async def list_container_states(self, system_id: str) -> list[ContainerState]:
+        """Read the status and health of the system's running containers."""
+        records = await self._list_records(
+            "containers",
+            params={
+                "filter": self._filter_eq("system", system_id),
+                "fields": "name,status,health",
+                "sort": "name",
+            },
+        )
+        return self._parse_items("containers", records, ContainerState)
+
+    async def list_failed_services(self, system_id: str) -> list[ServiceState]:
+        """Read the system's systemd services in the failed state."""
+        records = await self._list_records(
+            "systemd_services",
+            params={
+                "filter": self._filter_eq("system", system_id)
+                + f" && state = {SERVICE_STATE_FAILED}",
+                "fields": "name,state",
+                "sort": "name",
+            },
+        )
+        return self._parse_items("systemd_services", records, ServiceState)
+
+    async def list_failed_smart_devices(self, system_id: str) -> list[SmartDeviceState]:
+        """Read the system's disks whose SMART self-assessment failed."""
+        records = await self._list_records(
+            "smart_devices",
+            params={
+                "filter": self._filter_eq("system", system_id) + " && state = 'FAILED'",
+                "fields": "name,model,state",
+                "sort": "name",
+            },
+        )
+        return self._parse_items("smart_devices", records, SmartDeviceState)
+
+    @staticmethod
+    def _parse_items[ModelT: BaseModel](
+        collection: str, records: list[dict[str, Any]], model: type[ModelT]
+    ) -> list[ModelT]:
+        items: list[ModelT] = []
+        for record in records:
+            try:
+                items.append(model.model_validate(record))
+            except ValueError as exc:
+                logger.debug(
+                    "Skipping invalid %s record: %s", collection, type(exc).__name__
+                )
+        return items
 
     async def get_history(
         self, system_id: str, history_range: HistoryRange

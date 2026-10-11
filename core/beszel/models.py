@@ -220,6 +220,50 @@ class SystemDetailView(BaseModel):
     containers: list[ContainerStats] = Field(default_factory=list)
 
 
+class ContainerState(BaseModel):
+    """One ``containers`` record; the agent only reports running containers."""
+
+    model_config = ConfigDict(extra="ignore", str_strip_whitespace=True)
+
+    name: str = Field(min_length=1)
+    status: str = ""
+    # Beszel DockerHealth: 0 none, 1 starting, 2 healthy, 3 unhealthy.
+    health: int = 0
+
+
+class ServiceState(BaseModel):
+    """One ``systemd_services`` record."""
+
+    model_config = ConfigDict(extra="ignore", str_strip_whitespace=True)
+
+    name: str = Field(min_length=1)
+    # Beszel ServiceState: 0 active, 1 inactive, 2 failed, 3 activating,
+    # 4 deactivating, 5 reloading.
+    state: int
+
+
+class SmartDeviceState(BaseModel):
+    """One ``smart_devices`` record."""
+
+    model_config = ConfigDict(extra="ignore", str_strip_whitespace=True)
+
+    name: str = Field(min_length=1)
+    model: str = ""
+    # PASSED, FAILED, or UNKNOWN.
+    state: str = ""
+
+
+class SystemHealthView(BaseModel):
+    """Container, service, and disk health of one system.
+
+    A ``None`` part means its query failed, as opposed to an empty result.
+    """
+
+    containers: list[ContainerState] | None = None
+    failed_services: list[ServiceState] | None = None
+    failed_smart_devices: list[SmartDeviceState] | None = None
+
+
 class SystemHistoryPoint(BaseModel):
     created: datetime
     stats: dict[str, Any] = Field(default_factory=dict)

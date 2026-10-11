@@ -65,5 +65,32 @@
       {"id": "fixturesys00005", "name": "fixture-epsilon", "status": null}
     ],
     "containers_non_list_stats": [{"stats": {"n": "fixture-container", "c": 1.5}}]
+  },
+  "health_records": {
+    "containers": {
+      "items": [
+        {"name": "web", "status": "Up 3 minutes", "health": 3},
+        {"name": "", "status": "Up 1 hour", "health": 0},
+        {"status": "Up 1 hour", "health": 2}
+      ],
+      "valid": [{"name": "web", "status": "Up 3 minutes", "health": 3}],
+      "fields": "name,status,health",
+      "filter": "system = 'pubdelta0000004'"
+    },
+    "systemd_services": {
+      "items": [{"name": "nginx.service", "state": 2}, {"name": "broken.service"}],
+      "valid": [{"name": "nginx.service", "state": 2}],
+      "fields": "name,state",
+      "filter": "system = 'pubdelta0000004' && state = 2"
+    },
+    "smart_devices": {
+      "items": [
+        {"name": "/dev/sda", "model": "Fixture SSD", "state": "FAILED"},
+        {"model": "Fixture HDD", "state": "FAILED"}
+      ],
+      "valid": [{"name": "/dev/sda", "model": "Fixture SSD", "state": "FAILED"}],
+      "fields": "name,model,state",
+      "filter": "system = 'pubdelta0000004' && state = 'FAILED'"
+    }
   }
 }

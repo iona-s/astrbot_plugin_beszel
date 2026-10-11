@@ -9,5 +9,10 @@
   "history_range_input": "12H",
   "blank_history_ranges": ["", "   "],
   "invalid_history_range": "2h",
-  "live_status": "down"
+  "live_status": "down",
+  "health": {
+    "containers": [{"name": "web", "status": "Up 3 minutes", "health": 3}],
+    "failed_services": [{"name": "nginx.service", "state": 2}],
+    "failed_smart_devices": [{"name": "/dev/sda", "model": "Fixture SSD", "state": "FAILED"}]
+  }
 }
