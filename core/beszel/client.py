@@ -34,7 +34,7 @@ from .models import (
     SystemSummary,
 )
 
-USER_AGENT = "astrbot-plugin-beszel/1.2.0"
+USER_AGENT = "astrbot-plugin-beszel/1.2.1"
 MAX_RESPONSE_BYTES = 8 * 1024 * 1024
 TOKEN_RENEWAL_MARGIN_SECONDS = 60
 TOKEN_FALLBACK_LIFETIME_SECONDS = 3600
