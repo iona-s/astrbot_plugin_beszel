@@ -16,6 +16,7 @@ from .models import (
     HistoryRange,
     ServiceState,
     SmartDeviceState,
+    StoragePoolState,
     SystemDetails,
     SystemMetrics,
     SystemSummary,
@@ -165,4 +166,13 @@ class HubData:
             ("failed_smart_devices", system_id),
             ttl,
             partial(self.client.list_failed_smart_devices, system_id),
+        )
+
+    async def list_storage_pools(
+        self, system_id: str, *, ttl: float
+    ) -> list[StoragePoolState]:
+        return await self._read(
+            ("storage_pools", system_id),
+            ttl,
+            partial(self.client.list_storage_pools, system_id),
         )

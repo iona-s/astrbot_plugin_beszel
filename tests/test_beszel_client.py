@@ -446,6 +446,7 @@ async def test_latest_containers_ignore_non_list_stats(
         ("list_container_states", "containers"),
         ("list_failed_services", "systemd_services"),
         ("list_failed_smart_devices", "smart_devices"),
+        ("list_storage_pools", "zfs_pools"),
     ],
 )
 async def test_health_queries_filter_by_system_and_skip_invalid_records(

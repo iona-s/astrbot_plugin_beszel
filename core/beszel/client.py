@@ -29,6 +29,7 @@ from .models import (
     PocketBaseListResult,
     ServiceState,
     SmartDeviceState,
+    StoragePoolState,
     SystemDetails,
     SystemMetrics,
     SystemSummary,
@@ -462,6 +463,23 @@ class BeszelClient:
             },
         )
         return self._parse_items("smart_devices", records, SmartDeviceState)
+
+    async def list_storage_pools(self, system_id: str) -> list[StoragePoolState]:
+        """Read the status details of the system's ZFS and Btrfs pools.
+
+        The ``zfs_pools`` collection exists from Beszel v0.19.0, the version
+        that added pool stats, so callers query it only for systems reporting
+        pools.
+        """
+        records = await self._list_records(
+            "zfs_pools",
+            params={
+                "filter": self._filter_eq("system", system_id),
+                "fields": "name,status,scrub,vdevs",
+                "sort": "name",
+            },
+        )
+        return self._parse_items("zfs_pools", records, StoragePoolState)
 
     @staticmethod
     def _parse_items[ModelT: BaseModel](

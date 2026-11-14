@@ -14,6 +14,7 @@ from .hub_data import HubData
 from .models import (
     ContainerHistoryPoint,
     HistoryRange,
+    StoragePoolState,
     SystemDetails,
     SystemDetailView,
     SystemHealthView,
@@ -180,7 +181,8 @@ class QueryService:
 
         The range is validated before any Hub request, and the cached system
         list only resolves the selector. Hardware details are optional
-        enrichment, so their failure leaves ``details`` empty.
+        enrichment, so their failure leaves ``details`` empty, and so are
+        storage pool details, read only when the newest sample reports pools.
 
         Args:
             selector: System ID, exact name, or unique partial name.
@@ -249,6 +251,19 @@ class QueryService:
             len(points),
             len(container_points),
         )
+        # Like the Hub page, pool details are read only for a system reporting
+        # pools; the zfs_pools collection and pool stats both arrived in Beszel
+        # v0.19.0, so older Hubs never receive this request.
+        storage_pools: list[StoragePoolState] = []
+        if points and points[-1].stats.get("z"):
+            try:
+                storage_pools = await self.data.list_storage_pools(system.id, ttl=ttl)
+            except Exception as exc:
+                logger.warning(
+                    "Beszel zfs_pools query failed for system_id=%s: %s",
+                    system.id,
+                    type(exc).__name__,
+                )
         return SystemHistoryView(
             summary=summary,
             range=parsed_range,
@@ -256,6 +271,7 @@ class QueryService:
             container_points=container_points,
             details=system_details,
             window_end=window_end,
+            storage_pools=storage_pools,
         )
 
     @staticmethod

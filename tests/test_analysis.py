@@ -23,6 +23,7 @@ from astrbot_plugin_beszel.core.beszel.models import (
     HistoryRange,
     ServiceState,
     SmartDeviceState,
+    StoragePoolState,
     SystemDetails,
     SystemDetailView,
     SystemHealthView,
@@ -52,6 +53,7 @@ def test_default_analysis_prompt_content() -> None:
     assert "cpu_iowait_pct" in DEFAULT_ANALYSIS_PROMPT
     assert "storage_pools" in DEFAULT_ANALYSIS_PROMPT
     assert "node.root_disk_name" in DEFAULT_ANALYSIS_PROMPT
+    assert "vdev_errors" in DEFAULT_ANALYSIS_PROMPT
 
 
 def test_format_analysis_reply_boundaries() -> None:
@@ -595,6 +597,105 @@ def test_extract_analysis_context_storage_pools_and_root_disk() -> None:
         },
         {"name": "small1", "type": "zfs", "used_pct": 10.0, "total_gib": 100.0},
     ]
+
+
+def test_extract_analysis_context_merges_storage_pool_details() -> None:
+    t_ref = datetime(2026, 9, 14, 1, 0, 0, tzinfo=UTC)
+    status = "Some supported and requested features are not enabled on the pool. " * 3
+    summary = SystemSummary(id="sys-1", name="Node 1", status="up")
+    detail = SystemDetailView(
+        summary=summary,
+        metrics=SystemMetrics(
+            stats={
+                "cpu": 5.0,
+                "z": {
+                    "tank": {"d": 100.0, "du": 50.0, "h": "ONLINE"},
+                    "backup": {"d": 100.0, "du": 20.0, "h": "ONLINE"},
+                    "b:fixture-root": {
+                        "n": "root-fs",
+                        "hu": True,
+                        "hi": True,
+                        "h": "ONLINE",
+                    },
+                    "b:fixture-quiet": {
+                        "n": "quiet-fs",
+                        "hu": True,
+                        "hi": True,
+                        "h": "ONLINE",
+                    },
+                },
+            }
+        ),
+    )
+    history = SystemHistoryView(
+        summary=summary,
+        range=HistoryRange.ONE_HOUR,
+        storage_pools=[
+            StoragePoolState(
+                name="tank",
+                status=status,
+                scrub={"state": "SCANNING", "progress": "45.10%"},
+                vdevs=[{"name": "raidz1-0", "state": "ONLINE"}],
+            ),
+            StoragePoolState(
+                name="backup",
+                scrub={"state": "FINISHED", "errors": 3},
+                vdevs=[
+                    {"name": "mirror-0", "state": "DEGRADED"},
+                    {"name": "sdc", "state": "FAULTED", "readErrs": 5, "writeErrs": 1},
+                    {"name": "sdd", "state": "ONLINE"},
+                ],
+            ),
+            # Healthy duplicate of the root disk, but with corrected errors.
+            StoragePoolState(
+                name="b:fixture-root",
+                vdevs=[{"name": "devid 1", "state": "ONLINE", "checksumErrs": 2}],
+            ),
+            # Healthy duplicate with nothing new to report.
+            StoragePoolState(
+                name="b:fixture-quiet",
+                scrub={"state": "FINISHED"},
+                vdevs=[{"name": "devid 1", "state": "ONLINE"}],
+            ),
+            StoragePoolState(name="gone", status="Pool is no longer reported."),
+        ],
+    )
+
+    user_json = extract_analysis_context(_edge_notification(), detail, history, t_ref)
+
+    assert user_json is not None
+    data = json.loads(user_json)
+    # Pools with errors come first; a running scrub alone is no problem.
+    assert data["storage_pools"] == [
+        {
+            "name": "backup",
+            "type": "zfs",
+            "health": "ONLINE",
+            "scrub": {"state": "FINISHED", "errors": 3},
+            "vdev_errors": [
+                {"name": "mirror-0", "state": "DEGRADED"},
+                {"name": "sdc", "state": "FAULTED", "read": 5, "write": 1},
+            ],
+            "used_pct": 20.0,
+            "total_gib": 100.0,
+        },
+        {
+            "name": "root-fs",
+            "type": "btrfs",
+            "health": "ONLINE",
+            "vdev_errors": [{"name": "devid 1", "state": "ONLINE", "checksum": 2}],
+        },
+        {
+            "name": "tank",
+            "type": "zfs",
+            "health": "ONLINE",
+            "status": status[:160],
+            "scrub": {"state": "SCANNING", "progress": "45.10%"},
+            "used_pct": 50.0,
+            "total_gib": 100.0,
+        },
+    ]
+    assert data["truncated"] is True
 
 
 def _edge_notification(**overrides) -> NormalizedNotification:

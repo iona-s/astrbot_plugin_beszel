@@ -91,6 +91,48 @@
       "valid": [{"name": "/dev/sda", "model": "Fixture SSD", "state": "FAILED"}],
       "fields": "name,model,state",
       "filter": "system = 'pubdelta0000004' && state = 'FAILED'"
+    },
+    "zfs_pools": {
+      "items": [
+        {
+          "name": "tank",
+          "display_name": "",
+          "status": "",
+          "scrub": {"state": "SCANNING", "progress": "45.10%"},
+          "vdevs": [
+            {"name": "raidz1-0", "state": "ONLINE"},
+            {"name": "sdb", "state": "ONLINE", "checksumErrs": 2}
+          ]
+        },
+        {"name": "b:fixture-btrfs-pool", "scrub": null, "vdevs": null},
+        {"status": "record without a pool name"}
+      ],
+      "valid": [
+        {
+          "name": "tank",
+          "status": "",
+          "scrub": {"state": "SCANNING", "progress": "45.10%", "errors": 0},
+          "vdevs": [
+            {
+              "name": "raidz1-0",
+              "state": "ONLINE",
+              "read_errors": 0,
+              "write_errors": 0,
+              "checksum_errors": 0
+            },
+            {
+              "name": "sdb",
+              "state": "ONLINE",
+              "read_errors": 0,
+              "write_errors": 0,
+              "checksum_errors": 2
+            }
+          ]
+        },
+        {"name": "b:fixture-btrfs-pool", "status": "", "scrub": null, "vdevs": []}
+      ],
+      "fields": "name,status,scrub,vdevs",
+      "filter": "system = 'pubdelta0000004'"
     }
   }
 }

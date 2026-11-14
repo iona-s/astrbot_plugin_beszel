@@ -8,6 +8,7 @@ import pytest
 from astrbot_plugin_beszel.core.beszel.models import (
     ContainerHistoryMetrics,
     HistoryRange,
+    StoragePoolState,
     SystemDetails,
     SystemHealthView,
     SystemMetrics,
@@ -41,6 +42,7 @@ class FixtureClient:
             if container_history_data
             else []
         )
+        self.storage_pools = [StoragePoolState(name="tank")]
         self.live_systems = {system.id: system for system in self.systems}
         self.calls: list[tuple[str, object]] = []
 
@@ -73,6 +75,10 @@ class FixtureClient:
     async def get_container_history(self, system_id: str, history_range: HistoryRange):
         self.calls.append(("container_history", (system_id, history_range)))
         return self.container_history
+
+    async def list_storage_pools(self, system_id: str):
+        self.calls.append(("storage_pools", system_id))
+        return self.storage_pools
 
 
 @pytest.fixture()
@@ -230,6 +236,50 @@ async def test_history_keeps_view_when_optional_details_fail(
     assert history.details is None
     assert len(history.points) == len(fixture_client.history)
     assert len(history.container_points) == len(fixture_client.container_history)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("newest_reports_pools", [True, False])
+async def test_history_reads_pool_details_only_for_systems_with_pools(
+    newest_reports_pools, fixture_client, query_data
+) -> None:
+    system_id = query_data["detail_system_id"]
+    if not newest_reports_pools:
+        fixture_client.history[-1].stats.pop("z")
+    service = QueryService(fixture_client, default_history_range=HistoryRange.ONE_HOUR)
+
+    history = await service.get_system_history(system_id)
+
+    # Like the Hub page, the newest sample decides; older Hubs lack the collection.
+    assert (
+        ("storage_pools", system_id) in fixture_client.calls
+    ) is newest_reports_pools
+    assert history.storage_pools == (
+        fixture_client.storage_pools if newest_reports_pools else []
+    )
+
+
+@pytest.mark.asyncio
+async def test_history_keeps_view_when_pool_details_fail(
+    fixture_client, query_data, astrbot_log_records
+) -> None:
+    system_id = query_data["detail_system_id"]
+
+    async def failing_list_storage_pools(_system_id):
+        raise BeszelTransportError("fixture failure", status_code=500)
+
+    fixture_client.list_storage_pools = failing_list_storage_pools
+    service = QueryService(fixture_client, default_history_range=HistoryRange.ONE_HOUR)
+
+    history = await service.get_system_history(system_id)
+
+    assert history.storage_pools == []
+    assert len(history.points) == len(fixture_client.history)
+    assert [
+        r.getMessage() for r in astrbot_log_records if r.levelno == logging.WARNING
+    ] == [
+        f"Beszel zfs_pools query failed for system_id={system_id}: BeszelTransportError"
+    ]
 
 
 @pytest.mark.asyncio

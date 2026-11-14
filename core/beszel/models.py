@@ -264,6 +264,46 @@ class SmartDeviceState(BaseModel):
     state: str = ""
 
 
+class StoragePoolScrub(BaseModel):
+    """Scrub or resilver state of a storage pool."""
+
+    model_config = ConfigDict(extra="ignore", str_strip_whitespace=True)
+
+    # NONE, SCANNING, FINISHED, or CANCELED.
+    state: str = ""
+    progress: str = ""
+    errors: int = 0
+
+
+class StorageVdevState(BaseModel):
+    """One vdev or device of a storage pool; Beszel omits zero error counters."""
+
+    model_config = ConfigDict(extra="ignore", str_strip_whitespace=True)
+
+    name: str = ""
+    state: str = ""
+    read_errors: int = Field(default=0, alias="readErrs")
+    write_errors: int = Field(default=0, alias="writeErrs")
+    checksum_errors: int = Field(default=0, alias="checksumErrs")
+
+
+class StoragePoolState(BaseModel):
+    """One ``zfs_pools`` record; the agent refreshes these details about hourly."""
+
+    model_config = ConfigDict(extra="ignore", str_strip_whitespace=True)
+
+    # The pool key, as in the ``z`` field of system stats.
+    name: str = Field(min_length=1)
+    status: str = ""
+    scrub: StoragePoolScrub | None = None
+    vdevs: list[StorageVdevState] = Field(default_factory=list)
+
+    @field_validator("vdevs", mode="before")
+    @classmethod
+    def normalize_vdevs(cls, value: Any) -> Any:
+        return [] if value is None else value
+
+
 class SystemHealthView(BaseModel):
     """Container, service, and disk health of one system.
 
@@ -297,3 +337,5 @@ class SystemHistoryView(BaseModel):
     container_points: list[ContainerHistoryPoint] = Field(default_factory=list)
     details: SystemDetails | None = None
     window_end: datetime | None = None
+    # Details of the pools in the newest sample's ``z``; empty without pools.
+    storage_pools: list[StoragePoolState] = Field(default_factory=list)

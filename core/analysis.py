@@ -12,6 +12,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from .beszel.models import (
+    StoragePoolState,
     SystemDetailView,
     SystemHealthView,
     SystemHistoryPoint,
@@ -28,6 +29,7 @@ DEFAULT_ANALYSIS_PROMPT = """你是一名谨慎的 SRE/运维诊断助手。请�
 - load_1m 需结合 threads 判断，每线程负载持续高于 1 表示任务排队；cpu_iowait_pct 高表示 CPU 在等待磁盘，cpu_steal_pct 高表示虚拟机被宿主机抢占资源。
 - disk_ 开头的指标都属于根磁盘，node.root_disk_name 为其名称；extra_disks 为其他挂载磁盘的使用率。
 - storage_pools 为 ZFS/Btrfs 存储池：health 为 ONLINE 表示正常，DEGRADED、FAULTED 等表示冗余降级或故障，UNKNOWN 表示状态未知；used_pct 为使用率，raw 为 true 时按物理设备空间计算、实际可用容量未知；read_mib_s、write_mib_s 为读写吞吐量，始终接近 0 时省略。已作为根磁盘或 extra_disks 提供的使用率与吞吐量不重复列出。
+- 存储池的 status 为 zpool status 的提示，也可能只是功能未启用等非故障信息；scrub 为进行中的校验或重建（SCANNING，会占用磁盘 I/O）或发现错误的校验；vdev_errors 为状态异常或有读、写、校验错误的设备，错误计数是累计值，可能早已存在。这三项约每小时刷新一次。
 - node.uptime_seconds 为节点已运行的秒数，小于离线时长说明期间重启过；容器 status 中很短的运行时长表示刚重启过。node.services 中的失败服务、node.smart_failed、容器的 health 与 unhealthy_containers 是异常状态，但可能早已存在，需结合时间与指标判断是否与本次告警相关，不要直接归因。
 - node.uptime_seconds、node.services、extra_disks、存储池的 health 与 used_pct 以及容器 status 来自节点最近一次上报（时间同 time.snapshot_time），节点离线期间不会更新。
 - history 是同一节点之前告警的摘要与当时的诊断结论（before_current_seconds 为距本次告警的秒数）。
@@ -475,27 +477,65 @@ def _storage_pools(
     points: Sequence[SystemHistoryPoint],
     latest_stats: dict[str, Any],
     t_ref: datetime,
+    details: Sequence[StoragePoolState],
 ) -> list[dict[str, Any]]:
     """Summarize the ZFS and Btrfs pools of the newest sample, problems first.
 
     The agent's ``hu``/``hi`` flags mark usage and throughput already reported
     as the root disk or an extra disk. Those parts are left out, and a pool with
-    nothing left but a healthy state is skipped. Names are not truncated.
+    nothing else to report is skipped. ``details`` add the status message, a
+    running or failed scrub, and vdevs with errors or a bad state. Names and
+    status messages are not truncated.
     """
+    details_by_key = {pool.name: pool for pool in details}
     latest_pools = latest_stats.get("z")
-    pools: list[dict[str, Any]] = []
+    pools: list[tuple[bool, dict[str, Any]]] = []
     for key, latest in latest_pools.items() if isinstance(latest_pools, dict) else ():
         if not isinstance(latest, dict):
             continue
         health = str(latest.get("h") or "").strip().upper()[:16]
-        if latest.get("hu") and latest.get("hi") and health in _POOL_HEALTHY:
-            continue
         pool: dict[str, Any] = {
             "name": str(latest.get("n") or key),
             "type": "btrfs" if str(key).startswith("b:") else "zfs",
         }
         if health:
             pool["health"] = health
+        detail = details_by_key.get(str(key))
+        if detail and detail.status:
+            pool["status"] = detail.status
+        scrub = detail.scrub if detail else None
+        if scrub and (scrub.state.upper() == "SCANNING" or scrub.errors):
+            pool["scrub"] = {"state": scrub.state[:16]}
+            if scrub.progress:
+                pool["scrub"]["progress"] = scrub.progress[:16]
+            if scrub.errors:
+                pool["scrub"]["errors"] = scrub.errors
+        vdev_errors: list[dict[str, Any]] = []
+        for vdev in detail.vdevs if detail else ():
+            counts = {
+                "read": vdev.read_errors,
+                "write": vdev.write_errors,
+                "checksum": vdev.checksum_errors,
+            }
+            if any(counts.values()) or vdev.state.upper() not in ("", "ONLINE"):
+                entry: dict[str, Any] = {"name": vdev.name[:32]}
+                if vdev.state:
+                    entry["state"] = vdev.state[:16]
+                entry.update((label, count) for label, count in counts.items() if count)
+                vdev_errors.append(entry)
+        if vdev_errors:
+            pool["vdev_errors"] = vdev_errors[:4]
+        problem = bool(
+            health not in _POOL_HEALTHY or vdev_errors or (scrub and scrub.errors)
+        )
+        if (
+            latest.get("hu")
+            and latest.get("hi")
+            and not problem
+            and "status" not in pool
+            and "scrub" not in pool
+        ):
+            continue
         total = _safe_float(latest.get("d"))
         used_pct = _ratio_pct(_safe_float(latest.get("du")), total)
         if not latest.get("hu") and total and used_pct is not None:
@@ -527,15 +567,15 @@ def _storage_pools(
                     pool[name] = _metric_item(
                         name, _process_metric_series(samples, t_ref), latest_value
                     )
-        pools.append(pool)
+        pools.append((problem, pool))
     pools.sort(
-        key=lambda pool: (
-            pool.get("health", "") in _POOL_HEALTHY,
-            -pool.get("used_pct", -1.0),
-            pool["name"],
+        key=lambda item: (
+            not item[0],
+            -item[1].get("used_pct", -1.0),
+            item[1]["name"],
         )
     )
-    return pools[:4]
+    return [pool for _, pool in pools[:4]]
 
 
 def extract_analysis_context(
@@ -664,7 +704,12 @@ def extract_analysis_context(
         ),
         key=lambda disk: -disk["used_pct"],
     )[:3]
-    storage_pools = _storage_pools(points, latest_stats, t_ref)
+    storage_pools = _storage_pools(
+        points,
+        latest_stats,
+        t_ref,
+        history.storage_pools if history else [],
+    )
 
     # Containers: top candidates with their state, plus other unhealthy ones.
     container_states = {
@@ -757,6 +802,7 @@ def extract_analysis_context(
                 *(pool["name"] for pool in storage_pools),
             )
         )
+        or any(len(pool.get("status", "")) > 160 for pool in storage_pools)
     )
 
     payload: dict[str, Any] = {
@@ -773,7 +819,12 @@ def extract_analysis_context(
         payload["extra_disks"] = extra_disks
     if storage_pools:
         payload["storage_pools"] = [
-            {**pool, "name": pool["name"][:64]} for pool in storage_pools
+            {
+                **pool,
+                "name": pool["name"][:64],
+                **({"status": pool["status"][:160]} if "status" in pool else {}),
+            }
+            for pool in storage_pools
         ]
     payload["containers"] = containers_list
     if unhealthy:
