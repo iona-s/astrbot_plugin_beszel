@@ -265,3 +265,64 @@
   </div>
 </div>
 {%- endmacro %}
+
+{% macro storage_pool_table(rows) -%}
+<div class="section-card pool-table-card">
+  <div class="section-head">
+    <div class="section-title">存储池</div>
+  </div>
+  <div class="overview-table-grid">
+    <div class="overview-table-th-row">
+      <div class="th-cell pool-col-name">
+        <svg class="col-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"></ellipse><path d="M3 5V19A9 3 0 0 0 21 19V5"></path><path d="M3 12A9 3 0 0 0 21 12"></path></svg>
+        <span>存储池</span>
+      </div>
+      <div class="th-cell pool-col-type">
+        <svg class="col-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10a1 1 0 0 0 1-1V6a1 1 0 0 0-1-1h-2.5a1 1 0 0 1-.8-.4l-.9-1.2A1 1 0 0 0 15 3h-2a1 1 0 0 0-1 1v5a1 1 0 0 0 1 1Z"></path><path d="M20 21a1 1 0 0 0 1-1v-3a1 1 0 0 0-1-1h-2.9a1 1 0 0 1-.88-.55l-.42-.85a1 1 0 0 0-.92-.6H13a1 1 0 0 0-1 1v5a1 1 0 0 0 1 1Z"></path><path d="M3 5a2 2 0 0 0 2 2h3"></path><path d="M3 3v13a2 2 0 0 0 2 2h3"></path></svg>
+        <span>类型</span>
+      </div>
+      <div class="th-cell pool-col-health">
+        <svg class="col-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2"></path></svg>
+        <span>健康</span>
+      </div>
+      <div class="th-cell pool-col-size">
+        <svg class="col-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="14" y="14" width="4" height="6" rx="2"></rect><rect x="6" y="4" width="4" height="6" rx="2"></rect><path d="M6 20h4"></path><path d="M14 10h4"></path><path d="M6 14h2v6"></path><path d="M14 4h2v6"></path></svg>
+        <span>容量</span>
+      </div>
+      <div class="th-cell pool-col-size">
+        <svg class="col-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v8"></path><path d="m16 6-4 4-4-4"></path><rect width="20" height="8" x="2" y="14" rx="2"></rect><path d="M6 18h.01"></path><path d="M10 18h.01"></path></svg>
+        <span>已用</span>
+      </div>
+      <div class="th-cell pool-col-size">
+        <svg class="col-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m16 6-4-4-4 4"></path><path d="M12 2v8"></path><rect width="20" height="8" x="2" y="14" rx="2"></rect><path d="M6 18h.01"></path><path d="M10 18h.01"></path></svg>
+        <span>可用空间</span>
+      </div>
+      <div class="th-cell pool-col-scrub">
+        <svg class="col-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"></path><path d="M21 3v5h-5"></path></svg>
+        <span>Scrub</span>
+      </div>
+      <div class="th-cell pool-col-errors">
+        <svg class="col-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"></path><path d="M12 9v4"></path><path d="M12 17h.01"></path></svg>
+        <span>设备错误</span>
+      </div>
+      <div class="th-cell pool-col-updated">
+        <svg class="col-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><path d="M12 6v6l4 2"></path></svg>
+        <span>更新于</span>
+      </div>
+    </div>
+    {% for row in rows %}
+    <div class="overview-table-tr-row{% if loop.last %} overview-row-last{% endif %}">
+      <div class="td-cell pool-col-name"><span class="sys-name">{{ row.name }}</span></div>
+      <div class="td-cell pool-col-type"><span class="badge badge-{{ row.type_label | lower }}">{{ row.type_label }}</span></div>
+      <div class="td-cell pool-col-health"><span class="badge badge-{{ row.health_tone }}">{{ row.health_text }}</span></div>
+      <div class="td-cell pool-col-size"><span class="tabular-nums">{{ row.capacity_text }}</span></div>
+      <div class="td-cell pool-col-size"><span class="tabular-nums">{{ row.used_text }}</span></div>
+      <div class="td-cell pool-col-size"><span class="tabular-nums">{{ row.free_text }}</span></div>
+      <div class="td-cell pool-col-scrub"><span>{{ row.scrub_text }}</span></div>
+      <div class="td-cell pool-col-errors"><span class="tabular-nums{% if row.has_errors %} text-danger{% endif %}">{{ row.errors_text }}</span></div>
+      <div class="td-cell pool-col-updated"><span class="tabular-nums">{{ row.updated_text }}</span></div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{%- endmacro %}

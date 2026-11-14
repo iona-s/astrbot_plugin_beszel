@@ -10,12 +10,13 @@ from typing import Any
 
 from ..beszel.models import (
     ContainerHistoryPoint,
+    StoragePoolState,
     SystemDetailView,
     SystemHistoryPoint,
     SystemHistoryView,
     SystemSummary,
 )
-from ..formatters import StatusState, status_state
+from ..formatters import StatusState, format_datetime, status_state
 from .formatters import (
     format_bandwidth,
     format_bytes,
@@ -43,6 +44,7 @@ from .models import (
     ProgressMetric,
     StatusBadge,
     StatusDocument,
+    StoragePoolRow,
 )
 from .styles import (
     dynamic_series_color,
@@ -285,6 +287,71 @@ class PresentationBuilder:
             header=header,
             cards=tuple(cards),
             footer=DocumentFooter(f"{self.plugin_name} · {summary.name}"),
+            storage_pools=tuple(
+                self._storage_pool_row(pool)
+                for pool in sorted(
+                    view.storage_pools,
+                    key=lambda pool: (
+                        (pool.display_name or pool.name).casefold(),
+                        pool.name,
+                    ),
+                )
+            ),
+        )
+
+    def _storage_pool_row(self, pool: StoragePoolState) -> StoragePoolRow:
+        """Map one ``zfs_pools`` record to a row of the Hub's storage pool table.
+
+        Like the Hub, an ONLINE pool with device error counters is a warning.
+        The error column totals the per-device counters that the Hub only shows
+        in its pool detail sheet, which a static image cannot open.
+        """
+        errors = {
+            "读": sum(vdev.read_errors for vdev in pool.vdevs),
+            "写": sum(vdev.write_errors for vdev in pool.vdevs),
+            "校验": sum(vdev.checksum_errors for vdev in pool.vdevs),
+        }
+        has_errors = any(errors.values())
+        health = pool.health.upper()
+        if health == "ONLINE":
+            health_tone = "warning" if has_errors else "success"
+        elif health == "DEGRADED":
+            health_tone = "warning"
+        elif health in ("FAULTED", "OFFLINE", "UNAVAIL", "REMOVED", "SUSPENDED"):
+            health_tone = "danger"
+        else:
+            health_tone = "outline"
+        scrub = pool.scrub
+        if scrub and scrub.state:
+            scrub_text = scrub.state + (
+                f" ({scrub.progress})" if scrub.progress else ""
+            )
+            if scrub.errors:
+                scrub_text += f"，{scrub.errors} 个错误"
+        else:
+            scrub_text = "无"
+        raw_suffix = " (原始)" if pool.raw else ""
+        updated = pool.details_updated or pool.updated
+        return StoragePoolRow(
+            name=pool.display_name or pool.name,
+            type_label="Btrfs" if pool.name.startswith("b:") else "ZFS",
+            health_text=pool.health or "未知",
+            health_tone=health_tone,
+            capacity_text=f"{format_bytes(pool.size)}{raw_suffix}"
+            if pool.size
+            else "-",
+            used_text=f"{format_bytes(pool.alloc)}{raw_suffix}" if pool.alloc else "-",
+            # Raw pools report physical space, so their free space is unknown.
+            free_text=format_bytes(pool.free) if pool.free and not pool.raw else "-",
+            scrub_text=scrub_text,
+            errors_text=" · ".join(
+                f"{label} {count}" for label, count in errors.items() if count
+            )
+            or "无",
+            has_errors=has_errors,
+            updated_text=format_datetime(updated, self.display_timezone)
+            if updated
+            else "-",
         )
 
     def _overview_row(self, system: SystemSummary) -> OverviewRow:

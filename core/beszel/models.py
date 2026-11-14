@@ -294,14 +294,29 @@ class StoragePoolState(BaseModel):
 
     # The pool key, as in the ``z`` field of system stats.
     name: str = Field(min_length=1)
+    display_name: str = ""
+    health: str = ""
     status: str = ""
+    # Capacity in bytes; raw pools report physical device space.
+    size: float = 0
+    alloc: float = 0
+    free: float = 0
+    raw: bool = False
     scrub: StoragePoolScrub | None = None
     vdevs: list[StorageVdevState] = Field(default_factory=list)
+    details_updated: datetime | None = None
+    updated: datetime | None = None
 
     @field_validator("vdevs", mode="before")
     @classmethod
     def normalize_vdevs(cls, value: Any) -> Any:
         return [] if value is None else value
+
+    @field_validator("details_updated", "updated", mode="before")
+    @classmethod
+    def normalize_dates(cls, value: Any) -> Any:
+        # PocketBase returns an empty string for an unset date.
+        return value or None
 
 
 class SystemHealthView(BaseModel):

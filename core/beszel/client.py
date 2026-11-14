@@ -475,7 +475,8 @@ class BeszelClient:
             "zfs_pools",
             params={
                 "filter": self._filter_eq("system", system_id),
-                "fields": "name,status,scrub,vdevs",
+                "fields": "name,display_name,health,status,size,alloc,free,raw,"
+                "scrub,vdevs,details_updated,updated",
                 "sort": "name",
             },
         )

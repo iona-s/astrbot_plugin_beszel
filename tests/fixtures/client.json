@@ -97,20 +97,41 @@
         {
           "name": "tank",
           "display_name": "",
+          "health": "ONLINE",
           "status": "",
+          "size": 1000204886016,
+          "alloc": 400000000000,
+          "free": 600204886016,
+          "raw": false,
           "scrub": {"state": "SCANNING", "progress": "45.10%"},
           "vdevs": [
             {"name": "raidz1-0", "state": "ONLINE"},
             {"name": "sdb", "state": "ONLINE", "checksumErrs": 2}
-          ]
+          ],
+          "details_updated": "2026-08-15 12:30:00.000Z",
+          "updated": "2026-08-15 12:59:00.000Z"
         },
-        {"name": "b:fixture-btrfs-pool", "scrub": null, "vdevs": null},
+        {
+          "name": "b:fixture-btrfs-pool",
+          "size": 59278098432,
+          "raw": true,
+          "scrub": null,
+          "vdevs": null,
+          "details_updated": "",
+          "updated": ""
+        },
         {"status": "record without a pool name"}
       ],
       "valid": [
         {
           "name": "tank",
+          "display_name": "",
+          "health": "ONLINE",
           "status": "",
+          "size": 1000204886016,
+          "alloc": 400000000000,
+          "free": 600204886016,
+          "raw": false,
           "scrub": {"state": "SCANNING", "progress": "45.10%", "errors": 0},
           "vdevs": [
             {
@@ -127,11 +148,26 @@
               "write_errors": 0,
               "checksum_errors": 2
             }
-          ]
+          ],
+          "details_updated": "2026-08-15T12:30:00Z",
+          "updated": "2026-08-15T12:59:00Z"
         },
-        {"name": "b:fixture-btrfs-pool", "status": "", "scrub": null, "vdevs": []}
+        {
+          "name": "b:fixture-btrfs-pool",
+          "display_name": "",
+          "health": "",
+          "status": "",
+          "size": 59278098432,
+          "alloc": 0,
+          "free": 0,
+          "raw": true,
+          "scrub": null,
+          "vdevs": [],
+          "details_updated": null,
+          "updated": null
+        }
       ],
-      "fields": "name,status,scrub,vdevs",
+      "fields": "name,display_name,health,status,size,alloc,free,raw,scrub,vdevs,details_updated,updated",
       "filter": "system = 'pubdelta0000004'"
     }
   }

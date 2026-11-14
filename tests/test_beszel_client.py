@@ -459,7 +459,7 @@ async def test_health_queries_filter_by_system_and_skip_invalid_records(
     items = await getattr(client, method)(client_data["system_id"])
     await client.close()
 
-    assert [item.model_dump() for item in items] == case["valid"]
+    assert [item.model_dump(mode="json") for item in items] == case["valid"]
     request = session.requests[-1]
     assert request["path"] == f"/api/collections/{collection}/records"
     assert request["params"]["fields"] == case["fields"]

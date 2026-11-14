@@ -7,6 +7,7 @@ from astrbot_plugin_beszel.core.beszel.models import (
     ContainerHistoryMetrics,
     ContainerHistoryPoint,
     HistoryRange,
+    StoragePoolState,
     SystemDetailView,
     SystemHistoryPoint,
     SystemHistoryView,
@@ -471,6 +472,74 @@ def test_storage_pool_charts_follow_the_newest_sample(
     raidz_usage = cards["raidz 使用"]
     assert raidz_usage.subtitle == "存储池 raidz 的原始使用量"
     assert [p.value for p in raidz_usage.series[0].points] == [24.0 * 1024**3]
+
+
+def test_history_storage_pool_table_follows_the_hub(
+    history_data, rendering_data
+) -> None:
+    view = SystemHistoryView.model_validate(history_data)
+    view.storage_pools = [
+        StoragePoolState(
+            name="tank",
+            health="ONLINE",
+            size=1000 * 1024**3,
+            alloc=400 * 1024**3,
+            free=600 * 1024**3,
+            scrub={"state": "SCANNING", "progress": "45.10%"},
+            vdevs=[
+                {"name": "raidz1-0", "state": "ONLINE"},
+                {"name": "sdb", "state": "ONLINE", "checksumErrs": 2},
+                {"name": "sdc", "state": "ONLINE", "checksumErrs": 1, "readErrs": 4},
+            ],
+            details_updated="2026-08-15 12:30:00.000Z",
+        ),
+        StoragePoolState(
+            name="b:fixture-data-pool",
+            display_name="data",
+            raw=True,
+            size=60 * 1024**3,
+            alloc=30 * 1024**3,
+            free=30 * 1024**3,
+            updated="2026-08-15 12:59:00.000Z",
+        ),
+        StoragePoolState(
+            name="backup",
+            health="FAULTED",
+            scrub={"state": "FINISHED", "errors": 3},
+        ),
+    ]
+
+    rows = _builder(rendering_data).build_history(view).storage_pools
+
+    # Sorted by display name, like the Hub table.
+    assert [row.name for row in rows] == ["backup", "data", "tank"]
+    backup, data, tank = rows
+    assert (backup.type_label, backup.health_tone) == ("ZFS", "danger")
+    assert backup.scrub_text == "FINISHED，3 个错误"
+    assert (backup.capacity_text, backup.updated_text) == ("-", "-")
+    # Raw pools report physical space: no free space, unknown health.
+    assert (data.type_label, data.health_text, data.health_tone) == (
+        "Btrfs",
+        "未知",
+        "outline",
+    )
+    assert (data.capacity_text, data.used_text, data.free_text) == (
+        "60.0 GB (原始)",
+        "30.0 GB (原始)",
+        "-",
+    )
+    assert (data.scrub_text, data.errors_text, data.has_errors) == ("无", "无", False)
+    assert data.updated_text == "2026-08-15 12:59"
+    # An ONLINE pool with device errors is a warning.
+    assert (tank.health_text, tank.health_tone) == ("ONLINE", "warning")
+    assert (tank.errors_text, tank.has_errors) == ("读 4 · 校验 3", True)
+    assert tank.scrub_text == "SCANNING (45.10%)"
+    assert (tank.capacity_text, tank.used_text, tank.free_text) == (
+        "1.0 TB",
+        "400.0 GB",
+        "600.0 GB",
+    )
+    assert tank.updated_text == "2026-08-15 12:30"
 
 
 def test_fan_and_temperature_dynamic_series_colors(

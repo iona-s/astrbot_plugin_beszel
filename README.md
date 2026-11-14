@@ -37,7 +37,7 @@
 - **探针列表 (`/beszel list`)**：纯文本返回全部探针节点名称和状态圆点；离线节点额外显示上次在线时间。
 - **系统总览 (`/beszel overview`)**：卡片式多节点总览长图，直观展示各探针的 CPU、内存、根分区磁盘、网络流量、温度、GPU 等核心指标进度条。
 - **单机详情 (`/beszel status`)**：单探针完整实时详情长图，展示系统规格、运行时间、多核心负载、网络/磁盘/GPU 明细占用、外挂磁盘（EFS）和 Docker 容器实时资源占用列表。
-- **历史监控 (`/beszel history`)**：双列历史时序长图，支持多指标聚合卡片（系统 CPU/内存/磁盘、网络 Rx/Tx、磁盘读写 I/O、1m/5m/15m 负载、GPU 功耗与显存、外挂盘独立 I/O、ZFS / Btrfs 存储池使用与 I/O、以及 Docker/Podman 容器 CPU、内存与网络 I/O 历史趋势折线图等）。
+- **历史监控 (`/beszel history`)**：双列历史时序长图，支持多指标聚合卡片（系统 CPU/内存/磁盘、网络 Rx/Tx、磁盘读写 I/O、1m/5m/15m 负载、GPU 功耗与显存、外挂盘独立 I/O、ZFS / Btrfs 存储池使用与 I/O 及状态表、以及 Docker/Podman 容器 CPU、内存与网络 I/O 历史趋势折线图等）。
 - **监控 Webhook 接收**：支持 Bearer Token 鉴权，兼容 Beszel 及其他 Shoutrrr 服务（如 Watchtower），并额外支持 Uptime Kuma 的标准 JSON Webhook，自动将告警消息转发至 AstrBot 会话中。
 
 ---

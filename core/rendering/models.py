@@ -154,7 +154,24 @@ class HistoryChartCard:
 
 
 @dataclass(frozen=True, slots=True)
+class StoragePoolRow:
+    name: str
+    type_label: str
+    health_text: str
+    # Hub badge variant: success, warning, danger, or outline.
+    health_tone: str
+    capacity_text: str
+    used_text: str
+    free_text: str
+    scrub_text: str
+    errors_text: str
+    has_errors: bool
+    updated_text: str
+
+
+@dataclass(frozen=True, slots=True)
 class HistoryDocument:
     header: DocumentHeader
     cards: tuple[HistoryChartCard, ...]
     footer: DocumentFooter
+    storage_pools: tuple[StoragePoolRow, ...] = ()

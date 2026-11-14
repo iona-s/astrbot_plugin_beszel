@@ -13,6 +13,7 @@ import pytest
 from astrbot_plugin_beszel.core.beszel.models import (
     ContainerHistoryMetrics,
     ContainerHistoryPoint,
+    StoragePoolState,
     SystemDetailView,
     SystemHistoryView,
     SystemSummary,
@@ -72,9 +73,12 @@ def test_templates_render_fixture_documents(
         status = renderer.presentation.build_status(
             SystemDetailView.model_validate(status_data)
         )
-        history = renderer.presentation.build_history(
-            SystemHistoryView.model_validate(history_data)
-        )
+        history_view = SystemHistoryView.model_validate(history_data)
+        history = renderer.presentation.build_history(history_view)
+        history_view.storage_pools = [
+            StoragePoolState(name="tank", health="DEGRADED", size=1024**4)
+        ]
+        pool_history = renderer.presentation.build_history(history_view)
         templates = BeszelTemplateRenderer()
 
         overview_markup = templates.render_overview(overview)
@@ -88,6 +92,14 @@ def test_templates_render_fixture_documents(
         assert "1 小时" in history_markup
         # Main charts, extra filesystems, and storage pools each get a grid.
         assert history_markup.count('class="chart-grid"') == 3
+        # The pool table follows the charts only when pool details exist.
+        assert "pool-table-card" not in history_markup
+        pool_markup = templates.render_history(
+            pool_history, timezone=ZoneInfo(rendering_data["display_timezone"])
+        )
+        assert pool_markup.count("pool-table-card") == 1
+        assert pool_markup.index("pool-table-card") > pool_markup.rindex("chart-card")
+        assert 'class="badge badge-warning">DEGRADED' in pool_markup
         assert overview_markup.lstrip().startswith("<!doctype html>")
         assert ".table-meter-track" in templates.stylesheet
         assert "border-radius: 9999px" in templates.stylesheet
@@ -114,9 +126,18 @@ async def test_pytakumi_renders_fixture_views_to_png(
         status_png = await renderer.render_status(
             SystemDetailView.model_validate(status_data)
         )
-        history_png = await renderer.render_history(
-            SystemHistoryView.model_validate(history_data)
-        )
+        history_view = SystemHistoryView.model_validate(history_data)
+        history_view.storage_pools = [
+            StoragePoolState(
+                name="tank",
+                health="ONLINE",
+                size=1024**4,
+                alloc=1024**3,
+                free=1023 * 1024**3,
+                vdevs=[{"name": "sda", "state": "ONLINE", "checksumErrs": 1}],
+            )
+        ]
+        history_png = await renderer.render_history(history_view)
 
         outputs = [*overview_pngs, status_png, history_png]
         assert len(overview_pngs) == 3

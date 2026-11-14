@@ -1,5 +1,5 @@
 {% extends "base.html.j2" %}
-{% from "components.html.j2" import history_info_bar %}
+{% from "components.html.j2" import history_info_bar, storage_pool_table %}
 {% from "chart.html.j2" import chart_card %}
 {% block content %}
 {{ history_info_bar(document.header) }}
@@ -13,5 +13,8 @@
   {% else %}
   <div class="section-card empty">该时间范围内暂无历史时序数据</div>
   {% endfor %}
+  {% if document.storage_pools %}
+  {{ storage_pool_table(document.storage_pools) }}
+  {% endif %}
 </div>
 {% endblock %}
