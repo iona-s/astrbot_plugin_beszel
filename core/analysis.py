@@ -26,8 +26,10 @@ DEFAULT_ANALYSIS_PROMPT = """你是一名谨慎的 SRE/运维诊断助手。请�
 - node.os 为节点操作系统（Linux、Windows、macOS 或 FreeBSD），排查建议要使用该系统可用的工具与命令。
 - metrics 中每项指标的 latest 为最新值，baseline 为告警前 15~60 分钟的均值，peak_15m、peak_60m 为最近 15 分钟、1 小时内的峰值；字段名后缀表示单位（_pct 百分比、_mib_s MiB/s、_ms 毫秒、_c 摄氏度、_mib MiB）。除 cpu_pct、mem_pct、disk_pct 外，未出现的指标表示无数据或始终接近 0。
 - load_1m 需结合 threads 判断，每线程负载持续高于 1 表示任务排队；cpu_iowait_pct 高表示 CPU 在等待磁盘，cpu_steal_pct 高表示虚拟机被宿主机抢占资源。
+- disk_ 开头的指标都属于根磁盘，node.root_disk_name 为其名称；extra_disks 为其他挂载磁盘的使用率。
+- storage_pools 为 ZFS/Btrfs 存储池：health 为 ONLINE 表示正常，DEGRADED、FAULTED 等表示冗余降级或故障，UNKNOWN 表示状态未知；used_pct 为使用率，raw 为 true 时按物理设备空间计算、实际可用容量未知；read_mib_s、write_mib_s 为读写吞吐量，始终接近 0 时省略。已作为根磁盘或 extra_disks 提供的使用率与吞吐量不重复列出。
 - node.uptime_seconds 为节点已运行的秒数，小于离线时长说明期间重启过；容器 status 中很短的运行时长表示刚重启过。node.services 中的失败服务、node.smart_failed、容器的 health 与 unhealthy_containers 是异常状态，但可能早已存在，需结合时间与指标判断是否与本次告警相关，不要直接归因。
-- node.uptime_seconds、node.services、extra_disks 与容器 status 来自节点最近一次上报（时间同 time.snapshot_time），节点离线期间不会更新。
+- node.uptime_seconds、node.services、extra_disks、存储池的 health 与 used_pct 以及容器 status 来自节点最近一次上报（时间同 time.snapshot_time），节点离线期间不会更新。
 - history 是同一节点之前告警的摘要与当时的诊断结论（before_current_seconds 为距本次告警的秒数）。
 
 要求：
@@ -51,7 +53,7 @@ PERSONA_TASK_HEADER = (
     "与以下要求冲突时以以下要求为准："
 )
 MAX_COMPLETION_CHARS = 400
-MAX_USER_JSON_BYTES = 3200
+MAX_USER_JSON_BYTES = 6400
 MIB = 1024 * 1024
 MAX_HISTORY_DIAGNOSIS_CHARS = 150
 _HISTORY_METRICS = ("cpu_pct", "mem_pct", "disk_pct", "load_1m", "swap_pct")
@@ -464,6 +466,78 @@ def _top_containers(
     return ranked[:3]
 
 
+# ZFS reports pool states such as DEGRADED or FAULTED; Btrfs reports DEGRADED
+# for a missing device and UNKNOWN when its state cannot be read.
+_POOL_HEALTHY = ("", "ONLINE", "UNKNOWN")
+
+
+def _storage_pools(
+    points: Sequence[SystemHistoryPoint],
+    latest_stats: dict[str, Any],
+    t_ref: datetime,
+) -> list[dict[str, Any]]:
+    """Summarize the ZFS and Btrfs pools of the newest sample, problems first.
+
+    The agent's ``hu``/``hi`` flags mark usage and throughput already reported
+    as the root disk or an extra disk. Those parts are left out, and a pool with
+    nothing left but a healthy state is skipped. Names are not truncated.
+    """
+    latest_pools = latest_stats.get("z")
+    pools: list[dict[str, Any]] = []
+    for key, latest in latest_pools.items() if isinstance(latest_pools, dict) else ():
+        if not isinstance(latest, dict):
+            continue
+        health = str(latest.get("h") or "").strip().upper()[:16]
+        if latest.get("hu") and latest.get("hi") and health in _POOL_HEALTHY:
+            continue
+        pool: dict[str, Any] = {
+            "name": str(latest.get("n") or key),
+            "type": "btrfs" if str(key).startswith("b:") else "zfs",
+        }
+        if health:
+            pool["health"] = health
+        total = _safe_float(latest.get("d"))
+        used_pct = _ratio_pct(_safe_float(latest.get("du")), total)
+        if not latest.get("hu") and total and used_pct is not None:
+            pool["used_pct"] = round(used_pct, 1)
+            pool["total_gib"] = round(total, 1)
+            if latest.get("raw"):
+                pool["raw"] = True
+        if not latest.get("hi"):
+            # Beszel omits rb/wb when they are zero.
+            for field, name in (("rb", "read_mib_s"), ("wb", "write_mib_s")):
+                series: dict[datetime, float] = {}
+                for point in points:
+                    point_pools = (point.stats or {}).get("z")
+                    point_pool = (
+                        point_pools.get(key) if isinstance(point_pools, dict) else None
+                    )
+                    if not isinstance(point_pool, dict):
+                        continue
+                    value = _mib(_safe_float(point_pool.get(field, 0)))
+                    if value is not None:
+                        series[_to_utc(point.created)] = value
+                samples = sorted(series.items())
+                latest_value = _mib(_safe_float(latest.get(field, 0)))
+                if any(
+                    _round(name, value) > 0
+                    for value in (latest_value, *(val for _, val in samples))
+                    if value is not None
+                ):
+                    pool[name] = _metric_item(
+                        name, _process_metric_series(samples, t_ref), latest_value
+                    )
+        pools.append(pool)
+    pools.sort(
+        key=lambda pool: (
+            pool.get("health", "") in _POOL_HEALTHY,
+            -pool.get("used_pct", -1.0),
+            pool["name"],
+        )
+    )
+    return pools[:4]
+
+
 def extract_analysis_context(
     notification: NormalizedNotification,
     detail: SystemDetailView | None,
@@ -537,6 +611,9 @@ def extract_analysis_context(
     uptime = _non_negative(_safe_float(info.get("u")))
     if uptime is not None:
         node_dict["uptime_seconds"] = int(uptime)
+    root_disk_name = str(info.get("rdn") or "").strip()
+    if root_disk_name:
+        node_dict["root_disk_name"] = root_disk_name[:32]
 
     hardware: dict[str, Any] = {}
     if sys_details and sys_details.cores:
@@ -587,6 +664,7 @@ def extract_analysis_context(
         ),
         key=lambda disk: -disk["used_pct"],
     )[:3]
+    storage_pools = _storage_pools(points, latest_stats, t_ref)
 
     # Containers: top candidates with their state, plus other unhealthy ones.
     container_states = {
@@ -669,12 +747,14 @@ def extract_analysis_context(
         len(notification.title) > 80
         or len(notification.message) > 240
         or len(node_name) > 64
+        or len(root_disk_name) > 32
         or any(
             len(name) > 64
             for name in (
                 *(tc.name for tc in top_containers),
                 *unhealthy_raw,
                 *failed_raw,
+                *(pool["name"] for pool in storage_pools),
             )
         )
     )
@@ -691,6 +771,10 @@ def extract_analysis_context(
     }
     if extra_disks:
         payload["extra_disks"] = extra_disks
+    if storage_pools:
+        payload["storage_pools"] = [
+            {**pool, "name": pool["name"][:64]} for pool in storage_pools
+        ]
     payload["containers"] = containers_list
     if unhealthy:
         payload["unhealthy_containers"] = unhealthy
@@ -702,10 +786,11 @@ def extract_analysis_context(
 def _fit_payload(payload: dict[str, Any]) -> str | None:
     """Serialize the payload, dropping the least useful data until it fits.
 
-    Order: hardware, alert text length, extra disks and secondary I/O metrics,
-    name length, containers from the lowest ranked, then the unhealthy
-    container, failed service, and failed disk lists. Returns None when even
-    the reduced payload exceeds ``MAX_USER_JSON_BYTES``.
+    Order: hardware, alert text length, extra disks, storage pool throughput
+    and secondary I/O metrics, name length, containers from the lowest ranked,
+    then the unhealthy container, failed service, storage pool, and failed disk
+    lists. Returns None when even the reduced payload exceeds
+    ``MAX_USER_JSON_BYTES``.
     """
 
     def dumps() -> str | None:
@@ -716,10 +801,19 @@ def _fit_payload(payload: dict[str, Any]) -> str | None:
         payload["alert"]["message"] = payload["alert"]["message"][:120]
         payload["alert"]["title"] = payload["alert"]["title"][:40]
 
+    def drop_pool_throughput() -> None:
+        for pool in payload.get("storage_pools", ()):
+            pool.pop("read_mib_s", None)
+            pool.pop("write_mib_s", None)
+
     def shorten_names() -> None:
         node = payload["node"]
         node["name"] = node["name"][:32]
-        for entry in (*payload["containers"], *node.get("smart_failed", ())):
+        for entry in (
+            *payload["containers"],
+            *node.get("smart_failed", ()),
+            *payload.get("storage_pools", ()),
+        ):
             entry["name"] = entry["name"][:32]
         if "unhealthy_containers" in payload:
             payload["unhealthy_containers"] = [
@@ -737,6 +831,7 @@ def _fit_payload(payload: dict[str, Any]) -> str | None:
         lambda: payload["node"].pop("hardware", None),
         shorten_alert,
         lambda: payload.pop("extra_disks", None),
+        drop_pool_throughput,
         *(
             (lambda name=name: payload["metrics"].pop(name, None))
             for name in _DROPPABLE_METRICS
@@ -745,6 +840,7 @@ def _fit_payload(payload: dict[str, Any]) -> str | None:
         *(payload["containers"].pop for _ in payload["containers"]),
         lambda: payload.pop("unhealthy_containers", None),
         lambda: payload["node"].get("services", {}).pop("failed_names", None),
+        lambda: payload.pop("storage_pools", None),
         lambda: payload["node"].pop("smart_failed", None),
     ]
     for step in steps:

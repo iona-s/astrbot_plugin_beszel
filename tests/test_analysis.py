@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from datetime import UTC, datetime, timedelta, timezone
 
+import pytest
+from astrbot_plugin_beszel.core import analysis
 from astrbot_plugin_beszel.core.analysis import (
     DEFAULT_ANALYSIS_PROMPT,
     DIAGNOSIS_PREFIX,
@@ -48,6 +50,8 @@ def test_default_analysis_prompt_content() -> None:
     assert "peak_15m" in DEFAULT_ANALYSIS_PROMPT
     assert "uptime_seconds" in DEFAULT_ANALYSIS_PROMPT
     assert "cpu_iowait_pct" in DEFAULT_ANALYSIS_PROMPT
+    assert "storage_pools" in DEFAULT_ANALYSIS_PROMPT
+    assert "node.root_disk_name" in DEFAULT_ANALYSIS_PROMPT
 
 
 def test_format_analysis_reply_boundaries() -> None:
@@ -368,6 +372,17 @@ def _crowded_detail(t_ref: datetime, name_length: int) -> SystemDetailView:
                 "dios": [1.0, 2.0, 30.0, 3.0, 4.0, 5.0],
                 "b": [1048576, 2097152],
                 "t": {"传感器_" * 6: 60.0},
+                "z": {
+                    f"pool{i}": {
+                        "n": f"存储池名称_{i}" * 10,
+                        "h": "DEGRADED" if i == 3 else "ONLINE",
+                        "d": 1000.0,
+                        "du": 100.0 * (i + 1),
+                        "rb": 1048576 * (i + 1),
+                        "wb": 2097152,
+                    }
+                    for i in range(4)
+                },
             },
         ),
         containers=[
@@ -377,28 +392,34 @@ def _crowded_detail(t_ref: datetime, name_length: int) -> SystemDetailView:
     )
 
 
+# Every field is capped, so the production limit only binds with long CJK text
+# everywhere; the compression tests use a lower limit to keep their data compact.
+COMPRESSION_TEST_LIMIT = 4000
+
+
 def _long_alert() -> NormalizedNotification:
     return _edge_notification(
         title="测试告警标题超长前缀_" * 5, message="模拟业务告警详细描述信息内容。" * 16
     )
 
 
-def test_extract_analysis_context_compression_drops_hardware_and_alert_text_first() -> (
-    None
-):
+def test_extract_analysis_context_compression_drops_hardware_and_alert_text_first(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(analysis, "MAX_USER_JSON_BYTES", COMPRESSION_TEST_LIMIT)
     t_ref = datetime(2026, 9, 14, 1, 0, 0, tzinfo=UTC)
     health = SystemHealthView(
         failed_services=[
-            ServiceState(name=f"失败服务名称{i}" * 10, state=2) for i in range(4)
+            ServiceState(name=f"失败服务名称{i}" * 10, state=2) for i in range(3)
         ]
     )
 
     user_json = extract_analysis_context(
-        _long_alert(), _crowded_detail(t_ref, name_length=8), None, t_ref, health
+        _long_alert(), _crowded_detail(t_ref, name_length=4), None, t_ref, health
     )
 
     assert user_json is not None
-    assert len(user_json.encode("utf-8")) <= MAX_USER_JSON_BYTES
+    assert len(user_json.encode("utf-8")) <= COMPRESSION_TEST_LIMIT
     data = json.loads(user_json)
     assert data["truncated"] is True
     assert "hardware" not in data["node"]
@@ -408,17 +429,33 @@ def test_extract_analysis_context_compression_drops_hardware_and_alert_text_firs
     assert len(data["metrics"]) == 14
     assert "extra_disks" in data
     assert len(data["containers"]) == 3
+    pools = data["storage_pools"]
+    assert [pool["health"] for pool in pools] == ["DEGRADED", *["ONLINE"] * 3]
+    assert all("read_mib_s" in pool and "write_mib_s" in pool for pool in pools)
     assert data["time"]["snapshot_age_seconds"] == 30
 
 
-def test_extract_analysis_context_compression_keeps_primary_data_last() -> None:
+def test_extract_analysis_context_compression_keeps_primary_data_last(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(analysis, "MAX_USER_JSON_BYTES", COMPRESSION_TEST_LIMIT)
     t_ref = datetime(2026, 9, 14, 1, 0, 0, tzinfo=UTC)
     detail = _crowded_detail(t_ref, name_length=8)
     detail.summary.info["sv"] = [80, 5]
     health = SystemHealthView(
         containers=[
-            ContainerState(name=f"异常容器名称{i}" * 10, status="Up 1 minute", health=3)
-            for i in range(5)
+            *(
+                ContainerState(
+                    name=f"异常容器名称{i}" * 10, status="Up 1 minute", health=3
+                )
+                for i in range(5)
+            ),
+            *(
+                ContainerState(
+                    name=c.name, status="Restarting (1) 5 seconds ago", health=3
+                )
+                for c in detail.containers[-3:]
+            ),
         ],
         failed_services=[
             ServiceState(name=f"失败服务名称{i}" * 10, state=2) for i in range(5)
@@ -434,10 +471,14 @@ def test_extract_analysis_context_compression_keeps_primary_data_last() -> None:
     user_json = extract_analysis_context(_long_alert(), detail, None, t_ref, health)
 
     assert user_json is not None
-    assert len(user_json.encode("utf-8")) <= MAX_USER_JSON_BYTES
+    assert len(user_json.encode("utf-8")) <= COMPRESSION_TEST_LIMIT
     data = json.loads(user_json)
-    # Extra disks and secondary I/O metrics go before any container is dropped.
+    # Extra disks, pool throughput, and secondary I/O metrics go before any
+    # container is dropped; the pools themselves outlast the containers.
     assert "extra_disks" not in data
+    assert [sorted(pool) for pool in data["storage_pools"]] == [
+        ["health", "name", "total_gib", "type", "used_pct"]
+    ] * 4
     assert set(data["metrics"]) == {
         "cpu_pct",
         "mem_pct",
@@ -454,6 +495,7 @@ def test_extract_analysis_context_compression_keeps_primary_data_last() -> None:
         *(d["name"] for d in data["node"].get("smart_failed", ())),
         *data.get("unhealthy_containers", ()),
         *data["node"]["services"].get("failed_names", ()),
+        *(pool["name"] for pool in data["storage_pools"]),
     ]
     assert all(len(name) <= 32 for name in names)
 
@@ -472,6 +514,87 @@ def test_extract_analysis_context_disk_metrics() -> None:
     data = json.loads(user_json)
     assert data["metrics"]["disk_pct"] == {"latest": 85.5}
     assert data["node"]["hardware"] == {"disk_gib": 100.0}
+
+
+def test_extract_analysis_context_storage_pools_and_root_disk() -> None:
+    t_ref = datetime(2026, 9, 14, 1, 0, 0, tzinfo=UTC)
+    latest_pools = {
+        "tank": {"d": 1000.0, "du": 900.0, "h": "ONLINE"},
+        # Duplicates of the root disk: skipped while healthy, kept when not.
+        "b:fixture-root": {"n": "root-fs", "hu": True, "hi": True, "h": "ONLINE"},
+        "b:fixture-data": {"n": "data-fs", "hu": True, "hi": True, "h": "DEGRADED"},
+        "b:fixture-raw": {
+            "n": "raw-fs",
+            "hi": True,
+            "raw": True,
+            "d": 60.0,
+            "du": 30.0,
+            "h": "UNKNOWN",
+        },
+        "small1": {"d": 100.0, "du": 10.0},
+        "small2": {"d": 100.0, "du": 5.0},
+    }
+    summary = SystemSummary(
+        id="sys-1", name="Node 1", status="up", info={"rdn": "SSD-SATA"}
+    )
+    history = SystemHistoryView(
+        summary=summary,
+        range=HistoryRange.ONE_HOUR,
+        points=[
+            SystemHistoryPoint(
+                created=t_ref - timedelta(minutes=minutes),
+                stats={
+                    "cpu": 5.0,
+                    # rb is omitted while zero; "gone" no longer exists.
+                    "z": {
+                        **latest_pools,
+                        "tank": {
+                            **latest_pools["tank"],
+                            **({"rb": 5 * 1048576} if minutes == 30 else {}),
+                        },
+                        "gone": {"d": 10.0, "du": 9.9, "h": "FAULTED"},
+                    },
+                },
+            )
+            for minutes in range(60, 0, -1)
+        ],
+    )
+    detail = SystemDetailView(
+        summary=summary,
+        metrics=SystemMetrics(stats={"cpu": 5.0, "z": latest_pools}),
+    )
+
+    user_json = extract_analysis_context(_edge_notification(), detail, history, t_ref)
+
+    assert user_json is not None
+    data = json.loads(user_json)
+    assert data["node"]["root_disk_name"] == "SSD-SATA"
+    # Abnormal health first, then by usage; at most four pools.
+    assert data["storage_pools"] == [
+        {"name": "data-fs", "type": "btrfs", "health": "DEGRADED"},
+        {
+            "name": "tank",
+            "type": "zfs",
+            "health": "ONLINE",
+            "used_pct": 90.0,
+            "total_gib": 1000.0,
+            "read_mib_s": {
+                "latest": 0.0,
+                "baseline": 0.11,
+                "peak_15m": 0.0,
+                "peak_60m": 5.0,
+            },
+        },
+        {
+            "name": "raw-fs",
+            "type": "btrfs",
+            "health": "UNKNOWN",
+            "used_pct": 50.0,
+            "total_gib": 60.0,
+            "raw": True,
+        },
+        {"name": "small1", "type": "zfs", "used_pct": 10.0, "total_gib": 100.0},
+    ]
 
 
 def _edge_notification(**overrides) -> NormalizedNotification:
