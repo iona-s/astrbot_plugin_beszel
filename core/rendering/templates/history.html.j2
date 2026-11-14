@@ -3,9 +3,13 @@
 {% from "chart.html.j2" import chart_card %}
 {% block content %}
 {{ history_info_bar(document.header) }}
-<div class="chart-grid">
-  {% for chart in charts %}
-  {{ chart_card(chart) }}
+<div class="chart-sections">
+  {% for charts in chart_groups %}
+  <div class="chart-grid">
+    {% for chart in charts %}
+    {{ chart_card(chart) }}
+    {% endfor %}
+  </div>
   {% else %}
   <div class="section-card empty">该时间范围内暂无历史时序数据</div>
   {% endfor %}

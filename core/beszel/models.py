@@ -190,6 +190,8 @@ class ContainerStats(BaseModel):
     name: str = Field(alias="n", min_length=1)
     cpu: float | None = Field(default=None, alias="c")
     memory: float | None = Field(default=None, alias="m")
+    # Sent and received bytes/s; Beszel omits the pair when both are zero.
+    bandwidth: tuple[float, float] = Field(default=(0.0, 0.0), alias="b")
 
 
 class ContainerHistoryMetrics(BaseModel):

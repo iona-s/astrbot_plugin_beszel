@@ -11,7 +11,7 @@ from jinja2 import Environment, FileSystemLoader, StrictUndefined, Template
 
 from ...errors import RenderingError
 from ..models import HistoryDocument, OverviewDocument, StatusDocument
-from .charts import build_chart_view
+from .charts import ChartTemplateView, build_chart_view
 
 
 class BeszelTemplateRenderer:
@@ -50,10 +50,12 @@ class BeszelTemplateRenderer:
     def render_history(
         self, document: HistoryDocument, *, timezone: tzinfo | None
     ) -> str:
-        charts = tuple(
-            build_chart_view(card, timezone=timezone) for card in document.cards
-        )
-        return self._render(self._history, document=document, charts=charts)
+        chart_groups: list[list[ChartTemplateView]] = []
+        for card in document.cards:
+            if card.starts_section or not chart_groups:
+                chart_groups.append([])
+            chart_groups[-1].append(build_chart_view(card, timezone=timezone))
+        return self._render(self._history, document=document, chart_groups=chart_groups)
 
     @staticmethod
     def _render(template: Template, **context: Any) -> str:

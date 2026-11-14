@@ -148,6 +148,9 @@ class HistoryChartCard:
     extra_series_count: int = 0
     time_start: datetime | None = None
     time_end: datetime | None = None
+    # Starts a new chart grid on a fresh row, like the Hub's separate grids for
+    # extra filesystems and storage pools, so usage/I-O pairs stay side by side.
+    starts_section: bool = False
 
 
 @dataclass(frozen=True, slots=True)

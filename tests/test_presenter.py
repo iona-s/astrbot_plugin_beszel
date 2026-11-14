@@ -339,7 +339,8 @@ def test_history_cards_ordering_matches_beszel_hub_option_a(
     titles = [card.title for card in doc.cards]
     # Verify complete sequence matching Beszel Hub default layout:
     # CPU -> Container CPU -> Memory -> Container Memory -> Root Disk -> Disk I/O ->
-    # Bandwidth -> Swap -> Load -> Temperature -> Fan -> Battery -> GPU -> Extra FS
+    # Bandwidth -> Container Network -> Swap -> Load -> Temperature -> Fan ->
+    # Battery -> GPU -> Extra FS -> Storage pools (minus duplicates of the above)
     expected_full_titles = [
         "CPU 使用率",
         "容器 CPU 使用率",
@@ -348,6 +349,7 @@ def test_history_cards_ordering_matches_beszel_hub_option_a(
         "磁盘使用",
         "磁盘 I/O",
         "带宽",
+        "容器网络 I/O",
         "Swap 交换空间",
         "系统负载",
         "温度",
@@ -360,8 +362,115 @@ def test_history_cards_ordering_matches_beszel_hub_option_a(
         "Archive I/O",
         "Projects 使用",
         "Projects I/O",
+        "tank 使用",
+        "tank I/O",
     ]
     assert titles == expected_full_titles
+    # Extra filesystems and pools start their own grids, as on the Hub.
+    assert [card.title for card in doc.cards if card.starts_section] == [
+        "Archive 使用",
+        "tank 使用",
+    ]
+
+
+def test_container_network_card_sums_sent_and_received(
+    history_data, container_history_data, rendering_data
+) -> None:
+    view = SystemHistoryView.model_validate(history_data)
+    view.container_points = [
+        ContainerHistoryPoint(created=m.created, stats=m.stats)
+        for raw in container_history_data["records"]
+        if (m := ContainerHistoryMetrics.model_validate(raw)).created is not None
+    ]
+    document = _builder(rendering_data).build_history(view)
+
+    net_card = next(c for c in document.cards if c.title == "容器网络 I/O")
+    assert net_card.subtitle == "容器网络流量"
+    assert net_card.unit == ChartUnit.BYTES_PER_SECOND
+    # backup peaks at 2.49 MB/s, so the default 10% cutoff (of a 2.86 MB/s
+    # axis) drops worker at 0.27 MB/s; containers without "b" read 0.
+    assert [s.name for s in net_card.series] == ["backup", "web", "db"]
+    assert net_card.extra_series_count == 7
+    web = next(s for s in net_card.series if s.name == "web")
+    assert web.points[0].value == 180_000 + 1_250_000
+
+    cpu_card = next(c for c in document.cards if c.title == "容器 CPU 使用率")
+    cpu_colors = {s.name: s.color for s in cpu_card.series}
+    for series in net_card.series:
+        assert series.color == cpu_colors[series.name]
+
+
+def test_history_names_root_disk_charts_like_the_hub(
+    history_data, rendering_data
+) -> None:
+    view = SystemHistoryView.model_validate(history_data)
+    view.summary.info["rdn"] = "SSD-SATA"
+    document = _builder(rendering_data).build_history(view)
+
+    cards = {card.title: card for card in document.cards}
+    assert cards["SSD-SATA 使用"].subtitle == "SSD-SATA的磁盘使用"
+    assert cards["SSD-SATA I/O"].subtitle == "SSD-SATA的吞吐量"
+    assert "磁盘使用" not in cards
+
+
+def test_storage_pool_charts_follow_the_newest_sample(
+    history_data, rendering_data
+) -> None:
+    start = datetime(2026, 9, 6, 12, 0, tzinfo=UTC)
+    older = {
+        "tank": {"d": 100.0, "du": 40.0, "rb": 1000, "wb": 2000, "h": "ONLINE"},
+        "raidz": {"d": 30.0, "du": 10.0},
+        "gone": {"d": 50.0, "du": 5.0},
+    }
+    newer = {
+        # rb and wb are omitted when zero.
+        "tank": {"d": 100.0, "du": 41.0, "h": "DEGRADED"},
+        # The pool switched to raw capacity; its usable sample above is dropped.
+        "raidz": {"d": 60.0, "du": 24.0, "raw": True},
+        "b:fixture-data-pool": {"n": "Data", "hu": True, "d": 20.0, "du": 1.0},
+        "b:fixture-root-pool": {"n": "Root", "hu": True, "hi": True, "d": 9.0},
+    }
+    view = SystemHistoryView(
+        summary=SystemSummary.model_validate(history_data["summary"]),
+        range=HistoryRange.ONE_HOUR,
+        points=[
+            SystemHistoryPoint(created=start, stats={"cpu": 1.0, "z": older}),
+            SystemHistoryPoint(
+                created=start + timedelta(minutes=1), stats={"cpu": 1.0, "z": newer}
+            ),
+        ],
+    )
+    document = _builder(rendering_data).build_history(view)
+
+    titles = [card.title for card in document.cards]
+    assert titles[-5:] == [
+        "Data I/O",
+        "raidz 使用",
+        "raidz I/O",
+        "tank 使用",
+        "tank I/O",
+    ]
+    assert not any(title.startswith(("gone", "Root")) for title in titles)
+    cards = {card.title: card for card in document.cards}
+
+    tank_usage = cards["tank 使用"]
+    assert tank_usage.subtitle == "存储池 tank 的使用量"
+    assert tank_usage.unit == ChartUnit.BYTES
+    assert tank_usage.axis_max == 100.0 * 1024**3
+    assert [p.value for p in tank_usage.series[0].points] == [
+        40.0 * 1024**3,
+        41.0 * 1024**3,
+    ]
+    tank_io = cards["tank I/O"]
+    assert tank_io.subtitle == "存储池 tank 的吞吐量"
+    assert [[p.value for p in s.points] for s in tank_io.series] == [
+        [1000.0, 0.0],
+        [2000.0, 0.0],
+    ]
+
+    raidz_usage = cards["raidz 使用"]
+    assert raidz_usage.subtitle == "存储池 raidz 的原始使用量"
+    assert [p.value for p in raidz_usage.series[0].points] == [24.0 * 1024**3]
 
 
 def test_fan_and_temperature_dynamic_series_colors(

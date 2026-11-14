@@ -248,13 +248,12 @@ class PresentationBuilder:
             cpu_text=cpu_str,
             memory_text=memory_str,
         )
-        container_cpu_card: HistoryChartCard | None = None
-        container_mem_card: HistoryChartCard | None = None
+        container_cards: tuple[HistoryChartCard | None, ...] = (None, None, None)
         if view.container_points:
             container_points = tuple(
                 sorted(view.container_points, key=lambda p: p.created)
             )
-            container_cpu_card, container_mem_card = self._container_history_cards(
+            container_cards = self._container_history_cards(
                 container_points,
                 gap_seconds=view.range.expected_interval.total_seconds() * 1.5,
             )
@@ -262,8 +261,10 @@ class PresentationBuilder:
             self._history_cards(
                 points,
                 gap_seconds=view.range.expected_interval.total_seconds() * 1.5,
-                container_cpu_card=container_cpu_card,
-                container_mem_card=container_mem_card,
+                root_disk_name=str(info.get("rdn") or "").strip(),
+                container_cpu_card=container_cards[0],
+                container_mem_card=container_cards[1],
+                container_net_card=container_cards[2],
             )
         )
         # Like the Hub, every card spans the requested range up to the query
@@ -561,8 +562,10 @@ class PresentationBuilder:
         points: tuple[SystemHistoryPoint, ...],
         *,
         gap_seconds: float,
+        root_disk_name: str = "",
         container_cpu_card: HistoryChartCard | None = None,
         container_mem_card: HistoryChartCard | None = None,
+        container_net_card: HistoryChartCard | None = None,
     ) -> list[HistoryChartCard]:
         valid_points = [
             (point.created, point.stats)
@@ -642,10 +645,11 @@ class PresentationBuilder:
                 for created, stats in valid_points
             )
         )
+        # Like the Hub, a root disk named via FILESYSTEM=device__name titles its charts.
         self._append_chart(
             cards,
-            "磁盘使用",
-            "根分区的使用",
+            f"{root_disk_name} 使用" if root_disk_name else "磁盘使用",
+            f"{root_disk_name}的磁盘使用" if root_disk_name else "根分区的使用",
             disk_history.unit,
             [("根分区", list(disk_history.points), "disk")],
             gap_seconds,
@@ -665,8 +669,8 @@ class PresentationBuilder:
         if disk_read or disk_write:
             self._append_chart(
                 cards,
-                "磁盘 I/O",
-                "根文件系统的吞吐量",
+                f"{root_disk_name} I/O" if root_disk_name else "磁盘 I/O",
+                f"{root_disk_name}的吞吐量" if root_disk_name else "根文件系统的吞吐量",
                 ChartUnit.BYTES_PER_SECOND,
                 [("读取", disk_read, "disk_io"), ("写入", disk_write, "disk_io")],
                 gap_seconds,
@@ -692,6 +696,8 @@ class PresentationBuilder:
                 [("下行 (Rx)", receive, "net"), ("上行 (Tx)", transmit, "net")],
                 gap_seconds,
             )
+        if container_net_card is not None:
+            cards.append(container_net_card)
 
         swap_history = self._capacity_history(
             (created, stats.get("su"), stats.get("s"), None)
@@ -893,6 +899,7 @@ class PresentationBuilder:
                     maximum_override=total_vram,
                 )
 
+        filesystems_start = len(cards)
         filesystem_names = sorted(
             {
                 str(name)
@@ -945,6 +952,65 @@ class PresentationBuilder:
                     [("读取", reads, "disk_io"), ("写入", writes, "disk_io")],
                     gap_seconds,
                 )
+
+        # Like the Hub, the newest sample decides which ZFS/Btrfs pools exist and
+        # whether a chart duplicates a root or extra filesystem chart (hu/hi).
+        pools_start = len(cards)
+        latest_pools = valid_points[-1][1].get("z") if valid_points else None
+        if not isinstance(latest_pools, dict):
+            latest_pools = {}
+        pool_keys = sorted(
+            (
+                key
+                for key, pool in latest_pools.items()
+                if isinstance(pool, dict) and not (pool.get("hu") and pool.get("hi"))
+            ),
+            key=lambda key: (str(latest_pools[key].get("n") or key).casefold(), key),
+        )
+        for pool_key in pool_keys:
+            latest_pool = latest_pools[pool_key]
+            pool_name = str(latest_pool.get("n") or pool_key)
+            # Raw pools report physical device space; mixing raw and usable
+            # samples would put two different capacities on one axis.
+            raw = bool(latest_pool.get("raw"))
+            usage_samples = []
+            reads = []
+            writes = []
+            for created, stats in valid_points:
+                pools = stats.get("z")
+                pool = pools.get(pool_key) if isinstance(pools, dict) else None
+                if not isinstance(pool, dict):
+                    continue
+                if bool(pool.get("raw")) == raw:
+                    usage_samples.append((created, pool.get("du"), pool.get("d"), None))
+                reads.append((created, safe_float(pool.get("rb")) or 0.0))
+                writes.append((created, safe_float(pool.get("wb")) or 0.0))
+            if not latest_pool.get("hu"):
+                pool_history = self._capacity_history(usage_samples)
+                self._append_chart(
+                    cards,
+                    f"{pool_name} 使用",
+                    f"存储池 {pool_name} 的原始使用量"
+                    if raw
+                    else f"存储池 {pool_name} 的使用量",
+                    pool_history.unit,
+                    [(pool_name, list(pool_history.points), "disk")],
+                    gap_seconds,
+                    maximum_override=pool_history.maximum,
+                )
+            if not latest_pool.get("hi"):
+                self._append_chart(
+                    cards,
+                    f"{pool_name} I/O",
+                    f"存储池 {pool_name} 的吞吐量",
+                    ChartUnit.BYTES_PER_SECOND,
+                    [("读取", reads, "disk_io"), ("写入", writes, "disk_io")],
+                    gap_seconds,
+                )
+
+        for start in (filesystems_start, pools_start):
+            if start < len(cards):
+                cards[start] = replace(cards[start], starts_section=True)
         return cards
 
     def _container_history_cards(
@@ -952,9 +1018,11 @@ class PresentationBuilder:
         points: tuple[ContainerHistoryPoint, ...],
         *,
         gap_seconds: float,
-    ) -> tuple[HistoryChartCard | None, HistoryChartCard | None]:
+    ) -> tuple[HistoryChartCard | None, ...]:
+        """Build the container CPU, memory, and network cards, in that order."""
         cpu_by_container: dict[str, list[tuple[datetime, float]]] = {}
         mem_by_container: dict[str, list[tuple[datetime, float]]] = {}
+        net_by_container: dict[str, list[tuple[datetime, float]]] = {}
 
         for point in points:
             created = point.created
@@ -966,116 +1034,87 @@ class PresentationBuilder:
                     mem_by_container.setdefault(name, []).append(
                         (created, mem_val * (1024**2))
                     )
+                net_by_container.setdefault(name, []).append(
+                    (created, c.bandwidth[0] + c.bandwidth[1])
+                )
 
-        if not cpu_by_container and not mem_by_container:
-            return None, None
-
-        threshold = max(0, min(50, self.container_history_threshold))
-
-        # CPU threshold filtering
-        peak_cpu = {
-            name: max((v for _, v in pts), default=0.0)
-            for name, pts in cpu_by_container.items()
-        }
-        sorted_cpu = sorted(
-            peak_cpu.items(),
-            key=lambda item: (-item[1], item[0].casefold()),
+        charts = (
+            (
+                "容器 CPU 使用率",
+                "容器范围内的 CPU 使用率",
+                ChartUnit.PERCENT,
+                cpu_by_container,
+            ),
+            (
+                "容器内存使用",
+                "采集时间下的容器内存使用",
+                ChartUnit.BYTES,
+                mem_by_container,
+            ),
+            (
+                "容器网络 I/O",
+                "容器网络流量",
+                ChartUnit.BYTES_PER_SECOND,
+                net_by_container,
+            ),
         )
-        if sorted_cpu:
-            all_cpu_vals = [v for pts in cpu_by_container.values() for _, v in pts]
-            _, cpu_axis_max = self._axis_bounds(ChartUnit.PERCENT, all_cpu_vals, None)
+        threshold = max(0, min(50, self.container_history_threshold))
+        kept: list[tuple[list[str], int]] = []
+        for _, _, unit, by_container in charts:
+            ranked = sorted(
+                (
+                    (name, max((v for _, v in pts), default=0.0))
+                    for name, pts in by_container.items()
+                ),
+                key=lambda item: (-item[1], item[0].casefold()),
+            )
+            if not ranked:
+                kept.append(([], 0))
+                continue
             if threshold <= 0:
-                kept_cpu_names = [name for name, _ in sorted_cpu]
+                names = [name for name, _ in ranked]
             else:
-                cpu_cutoff = cpu_axis_max * (threshold / 100.0)
+                _, axis_max = self._axis_bounds(
+                    unit, [v for pts in by_container.values() for _, v in pts], None
+                )
+                cutoff = axis_max * (threshold / 100.0)
                 # The axis floor keeps the cutoff above every peak on idle hosts;
                 # keeping the busiest container preserves the card and its +N.
-                kept_cpu_names = [
-                    name for name, peak in sorted_cpu if peak >= cpu_cutoff
-                ] or [sorted_cpu[0][0]]
-            extra_cpu = max(0, len(sorted_cpu) - len(kept_cpu_names))
-        else:
-            kept_cpu_names = []
-            extra_cpu = 0
-
-        # Memory threshold filtering
-        peak_mem = {
-            name: max((v for _, v in pts), default=0.0)
-            for name, pts in mem_by_container.items()
-        }
-        sorted_mem = sorted(
-            peak_mem.items(),
-            key=lambda item: (-item[1], item[0].casefold()),
-        )
-        if sorted_mem:
-            all_mem_vals = [v for pts in mem_by_container.values() for _, v in pts]
-            _, mem_axis_max = self._axis_bounds(ChartUnit.BYTES, all_mem_vals, None)
-            if threshold <= 0:
-                kept_mem_names = [name for name, _ in sorted_mem]
-            else:
-                mem_cutoff = mem_axis_max * (threshold / 100.0)
-                kept_mem_names = [
-                    name for name, peak in sorted_mem if peak >= mem_cutoff
-                ] or [sorted_mem[0][0]]
-            extra_mem = max(0, len(sorted_mem) - len(kept_mem_names))
-        else:
-            kept_mem_names = []
-            extra_mem = 0
+                names = [name for name, peak in ranked if peak >= cutoff] or [
+                    ranked[0][0]
+                ]
+            kept.append((names, len(ranked) - len(names)))
 
         all_kept_names = sorted(
-            set(kept_cpu_names) | set(kept_mem_names), key=str.casefold
+            {name for names, _ in kept for name in names}, key=str.casefold
         )
-        total_containers = len(all_kept_names)
         name_to_color = {
             name: dynamic_series_color(
                 i,
-                total_containers,
+                len(all_kept_names),
                 saturation=0.65,
                 lightness=0.50,
             )
             for i, name in enumerate(all_kept_names)
         }
 
-        cpu_card: HistoryChartCard | None = None
-        mem_card: HistoryChartCard | None = None
-
-        if kept_cpu_names:
-            cpu_specs = [
-                (name, cpu_by_container[name], name_to_color[name])
-                for name in kept_cpu_names
-            ]
-            cpu_cards: list[HistoryChartCard] = []
-            self._append_chart(
-                cpu_cards,
-                "容器 CPU 使用率",
-                "容器范围内的 CPU 使用率",
-                ChartUnit.PERCENT,
-                cpu_specs,
-                gap_seconds,
-                extra_series_count=extra_cpu,
-            )
-            if cpu_cards:
-                cpu_card = cpu_cards[0]
-
-        if kept_mem_names:
-            mem_specs = [
-                (name, mem_by_container[name], name_to_color[name])
-                for name in kept_mem_names
-            ]
-            mem_cards: list[HistoryChartCard] = []
-            self._append_chart(
-                mem_cards,
-                "容器内存使用",
-                "采集时间下的容器内存使用",
-                ChartUnit.BYTES,
-                mem_specs,
-                gap_seconds,
-                extra_series_count=extra_mem,
-            )
-            if mem_cards:
-                mem_card = mem_cards[0]
-
-        return cpu_card, mem_card
+        cards: list[HistoryChartCard | None] = []
+        for (title, subtitle, unit, by_container), (names, extra) in zip(
+            charts, kept, strict=True
+        ):
+            chart_cards: list[HistoryChartCard] = []
+            if names:
+                self._append_chart(
+                    chart_cards,
+                    title,
+                    subtitle,
+                    unit,
+                    [(name, by_container[name], name_to_color[name]) for name in names],
+                    gap_seconds,
+                    extra_series_count=extra,
+                )
+            cards.append(chart_cards[0] if chart_cards else None)
+        return tuple(cards)
 
     def _append_chart(
         self,
