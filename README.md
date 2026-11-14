@@ -109,7 +109,9 @@
 - **`timeout_seconds`**：请求超时时间（秒，默认 `10`）
 - **`verify_tls`**：是否验证 TLS 证书（默认 `true`；使用自签名证书时可设为 `false`）
 - **`history_default_range`**：省略 range 参数时的默认历史跨度（默认 `1h`）
-- **`cache_ttl_seconds`**：探针列表内存缓存过期时间（秒，默认 `60`，范围 `0 ~ 300`，设为 `0` 禁用缓存）
+- **`system_list_cache_ttl_seconds`**：探针列表内存缓存过期时间（秒，默认 `60`，范围 `0 ~ 300`，设为 `0` 禁用缓存）
+- **`command_cache_ttl_seconds`**：指令与 LLM 工具查询节点数据时可复用的缓存时长（秒，默认 `0` 即每次查询最新数据，范围 `0 ~ 300`）
+- **`hardware_cache_ttl_seconds`**：硬件信息与硬盘 SMART 状态的缓存时长（秒，默认 `600`，范围 `0 ~ 3600`；只对缓存时长大于 0 的查询生效）
 
 ### 2. `access`（权限控制）
 - **`mode`**：
@@ -132,6 +134,7 @@
 - **`path`**：接收路径（默认 `/`）
 - **`token`**：Bearer Token 鉴权密钥（留空保存后插件将自动生成随机安全密钥）。该值同样会由 AstrBot 明文保存并显示，请按凭据管理
 - **`target_umos`**：接收告警推送的目标 UMO 列表（至少填写一个）
+- **`data_cache_ttl_seconds`**：告警的历史图与 AI 诊断可复用节点数据的时长（秒，默认 `10`，范围 `0 ~ 300`），同一条告警的两者因此只查询一次 Hub
 - **`analysis_provider_id`**：AI 诊断使用的对话模型（留空或所选模型不可用时，按顺序使用第一个能取到模型的目标会话当前的模型）
 - **`analysis_persona_id`**：AI 诊断使用的 AstrBot 人格（留空不使用；选择后只影响诊断的身份与语气，格式与篇幅仍按诊断要求）
 - **`analysis_prompt`**：LLM 根因分析自定义 System Prompt（留空使用内置预设，填入非空内容将完全替换，最大 4096 字符）

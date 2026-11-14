@@ -407,7 +407,9 @@ async def test_list_systems_cache_lifecycle(
     monkeypatch.setattr("time.monotonic", lambda: current_time)
 
     service = QueryService(
-        fixture_client, default_history_range=HistoryRange.ONE_HOUR, cache_ttl=15.0
+        fixture_client,
+        default_history_range=HistoryRange.ONE_HOUR,
+        system_list_cache_ttl=15.0,
     )
 
     def count_list_calls() -> int:
@@ -427,9 +429,74 @@ async def test_list_systems_cache_lifecycle(
 
 
 @pytest.mark.asyncio
+async def test_detail_queries_reuse_hub_results_by_ttl(
+    fixture_client, query_data, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    now = [1000.0]
+    monkeypatch.setattr("time.monotonic", lambda: now[0])
+    service = QueryService(
+        fixture_client,
+        default_history_range=HistoryRange.ONE_HOUR,
+        system_list_cache_ttl=60,
+        hardware_cache_ttl=600,
+    )
+    system_id = query_data["detail_system_id"]
+
+    def counts() -> dict[str, int]:
+        return {
+            name: sum(1 for call in fixture_client.calls if call[0] == name)
+            for name in ("system", "details", "metrics", "containers")
+        }
+
+    await service.get_system_detail(system_id, ttl=10)
+    await service.get_system_detail(system_id, ttl=10)
+    assert counts() == {"system": 1, "details": 1, "metrics": 1, "containers": 1}
+
+    # Live data expires with the caller's TTL; hardware details use the
+    # longer static TTL whenever the caller allows caching at all.
+    now[0] += 30
+    await service.get_system_detail(system_id, ttl=10)
+    assert counts() == {"system": 2, "details": 1, "metrics": 2, "containers": 2}
+
+    await service.get_system_detail(system_id)
+    assert counts() == {"system": 3, "details": 2, "metrics": 3, "containers": 3}
+
+
+@pytest.mark.asyncio
+async def test_overview_ttl_is_independent_of_the_selector_cache(
+    fixture_client,
+) -> None:
+    service = QueryService(
+        fixture_client,
+        default_history_range=HistoryRange.ONE_HOUR,
+        system_list_cache_ttl=60,
+    )
+
+    await service.list_systems()
+    await service.get_overview()
+    await service.get_overview(ttl=60)
+
+    # The selector list is reused only by callers that accept cached data.
+    assert sum(1 for call in fixture_client.calls if call[0] == "list_systems") == 2
+
+
+@pytest.mark.asyncio
+async def test_close_releases_the_hub_data_layer(fixture_client) -> None:
+    service = QueryService(fixture_client, default_history_range=HistoryRange.ONE_HOUR)
+    await service.list_systems()
+
+    await service.close()
+    await service.list_systems()
+
+    assert sum(1 for call in fixture_client.calls if call[0] == "list_systems") == 2
+
+
+@pytest.mark.asyncio
 async def test_list_systems_cache_disabled(fixture_client) -> None:
     service = QueryService(
-        fixture_client, default_history_range=HistoryRange.ONE_HOUR, cache_ttl=0
+        fixture_client,
+        default_history_range=HistoryRange.ONE_HOUR,
+        system_list_cache_ttl=0,
     )
     calls_before = len(fixture_client.calls)
 
@@ -445,7 +512,9 @@ async def test_list_systems_cache_disabled(fixture_client) -> None:
 @pytest.mark.asyncio
 async def test_list_systems_mutation_isolation(fixture_client) -> None:
     service = QueryService(
-        fixture_client, default_history_range=HistoryRange.ONE_HOUR, cache_ttl=15.0
+        fixture_client,
+        default_history_range=HistoryRange.ONE_HOUR,
+        system_list_cache_ttl=15.0,
     )
 
     first = await service.list_systems()

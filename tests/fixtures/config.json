@@ -8,7 +8,9 @@
       "timeout_seconds": 30,
       "verify_tls": false,
       "history_default_range": "12H",
-      "cache_ttl_seconds": 120
+      "system_list_cache_ttl_seconds": 120,
+      "command_cache_ttl_seconds": 5,
+      "hardware_cache_ttl_seconds": 1200
     },
     "access": {
       "mode": "umo_allowlist",
@@ -34,7 +36,8 @@
       "analysis_timeout_seconds": 30,
       "analysis_context_hours": 48,
       "analysis_context_recent_hours": 3,
-      "analysis_context_max_records": 8
+      "analysis_context_max_records": 8,
+      "data_cache_ttl_seconds": 30
     }
   },
   "inherited_timezone": {
@@ -71,11 +74,11 @@
       "target_umos": ["aiocqhttp:group:fixture"]
     }
   },
-  "cache_ttl_disabled": {
-    "beszel": {"cache_ttl_seconds": 0}
+  "system_list_cache_ttl_disabled": {
+    "beszel": {"system_list_cache_ttl_seconds": 0}
   },
-  "cache_ttl_default_fallback": {
-    "beszel": {"cache_ttl_seconds": null}
+  "system_list_cache_ttl_default_fallback": {
+    "beszel": {"system_list_cache_ttl_seconds": null}
   },
   "render_scale_cases": {
     "min_50": {
@@ -195,7 +198,10 @@
       "page_size": 20,
       "render_scale": 100,
       "webhook_enabled": false,
-      "cache_ttl_seconds": 60,
+      "system_list_cache_ttl_seconds": 60,
+      "command_cache_ttl_seconds": 0,
+      "hardware_cache_ttl_seconds": 600,
+      "data_cache_ttl_seconds": 10,
       "analysis_provider_id": "",
       "analysis_persona_id": "",
       "analysis_prompt": "",
@@ -215,7 +221,10 @@
       "webhook_enabled": true,
       "webhook_token": "fixture-webhook-token",
       "webhook_target_umos": ["aiocqhttp:group:fixture"],
-      "cache_ttl_seconds": 120,
+      "system_list_cache_ttl_seconds": 120,
+      "command_cache_ttl_seconds": 5,
+      "hardware_cache_ttl_seconds": 1200,
+      "data_cache_ttl_seconds": 30,
       "analysis_provider_id": "fixture-provider",
       "analysis_persona_id": "fixture-persona",
       "analysis_prompt": "Custom analysis prompt",
@@ -253,16 +262,32 @@
       "raw": {"render": {"page_size": 9}}
     },
     {
-      "name": "cache_ttl_negative",
-      "raw": {"beszel": {"cache_ttl_seconds": -1}}
+      "name": "system_list_cache_ttl_negative",
+      "raw": {"beszel": {"system_list_cache_ttl_seconds": -1}}
     },
     {
-      "name": "cache_ttl_overflow",
-      "raw": {"beszel": {"cache_ttl_seconds": 301}}
+      "name": "system_list_cache_ttl_overflow",
+      "raw": {"beszel": {"system_list_cache_ttl_seconds": 301}}
     },
     {
-      "name": "cache_ttl_type",
-      "raw": {"beszel": {"cache_ttl_seconds": "15"}}
+      "name": "system_list_cache_ttl_type",
+      "raw": {"beszel": {"system_list_cache_ttl_seconds": "15"}}
+    },
+    {
+      "name": "command_cache_ttl_overflow",
+      "raw": {"beszel": {"command_cache_ttl_seconds": 301}}
+    },
+    {
+      "name": "command_cache_ttl_type",
+      "raw": {"beszel": {"command_cache_ttl_seconds": true}}
+    },
+    {
+      "name": "hardware_cache_ttl_negative",
+      "raw": {"beszel": {"hardware_cache_ttl_seconds": -1}}
+    },
+    {
+      "name": "hardware_cache_ttl_overflow",
+      "raw": {"beszel": {"hardware_cache_ttl_seconds": 3601}}
     },
     {
       "name": "render_scale_low",

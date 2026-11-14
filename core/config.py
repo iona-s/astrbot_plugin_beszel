@@ -65,7 +65,9 @@ class BeszelConfig:
     timeout_seconds: int = 10
     verify_tls: bool = True
     history_default_range: str = "1h"
-    cache_ttl_seconds: int = 60
+    system_list_cache_ttl_seconds: int = 60
+    command_cache_ttl_seconds: int = 0
+    hardware_cache_ttl_seconds: int = 600
 
     @property
     def query_ready(self) -> bool:
@@ -110,6 +112,7 @@ class WebhookConfig:
     analysis_context_hours: int = 24
     analysis_context_recent_hours: int = 6
     analysis_context_max_records: int = 8
+    data_cache_ttl_seconds: int = 10
 
 
 @dataclass(frozen=True, slots=True)
@@ -152,16 +155,38 @@ class PluginConfig:
             raise ConfigurationError(
                 "beszel.history_default_range 默认历史范围不支持，可选值：1h, 12h, 24h, 1w, 30d"
             ) from exc
-        cache_ttl = beszel_raw.get("cache_ttl_seconds", 60)
-        if cache_ttl is None:
-            cache_ttl = 60
+        system_list_cache_ttl = beszel_raw.get("system_list_cache_ttl_seconds", 60)
+        if system_list_cache_ttl is None:
+            system_list_cache_ttl = 60
         if (
-            isinstance(cache_ttl, bool)
-            or not isinstance(cache_ttl, int)
-            or not 0 <= cache_ttl <= 300
+            isinstance(system_list_cache_ttl, bool)
+            or not isinstance(system_list_cache_ttl, int)
+            or not 0 <= system_list_cache_ttl <= 300
         ):
             raise ConfigurationError(
-                "beszel.cache_ttl_seconds 缓存过期时间必须在 0 到 300 秒之间"
+                "beszel.system_list_cache_ttl_seconds 探针列表缓存时长必须在 0 到 300 秒之间"
+            )
+        command_cache_ttl = beszel_raw.get("command_cache_ttl_seconds", 0)
+        if command_cache_ttl is None:
+            command_cache_ttl = 0
+        if (
+            isinstance(command_cache_ttl, bool)
+            or not isinstance(command_cache_ttl, int)
+            or not 0 <= command_cache_ttl <= 300
+        ):
+            raise ConfigurationError(
+                "beszel.command_cache_ttl_seconds 指令查询缓存时长必须在 0 到 300 秒之间"
+            )
+        hardware_cache_ttl = beszel_raw.get("hardware_cache_ttl_seconds", 600)
+        if hardware_cache_ttl is None:
+            hardware_cache_ttl = 600
+        if (
+            isinstance(hardware_cache_ttl, bool)
+            or not isinstance(hardware_cache_ttl, int)
+            or not 0 <= hardware_cache_ttl <= 3600
+        ):
+            raise ConfigurationError(
+                "beszel.hardware_cache_ttl_seconds 硬件信息与 SMART 缓存时长必须在 0 到 3600 秒之间"
             )
         verify_tls_raw = beszel_raw.get("verify_tls")
         verify_tls = verify_tls_raw is None or bool(verify_tls_raw)
@@ -296,6 +321,9 @@ class PluginConfig:
         analysis_context_max_records = _webhook_int(
             webhook_raw, "analysis_context_max_records", 8, 1, 20
         )
+        data_cache_ttl_seconds = _webhook_int(
+            webhook_raw, "data_cache_ttl_seconds", 10, 0, 300
+        )
 
         return cls(
             beszel=BeszelConfig(
@@ -305,7 +333,9 @@ class PluginConfig:
                 timeout_seconds=timeout,
                 verify_tls=verify_tls,
                 history_default_range=default_range,
-                cache_ttl_seconds=cache_ttl,
+                system_list_cache_ttl_seconds=system_list_cache_ttl,
+                command_cache_ttl_seconds=command_cache_ttl,
+                hardware_cache_ttl_seconds=hardware_cache_ttl,
             ),
             access=AccessConfig(
                 mode=mode,
@@ -336,5 +366,6 @@ class PluginConfig:
                 analysis_context_hours=analysis_context_hours,
                 analysis_context_recent_hours=analysis_context_recent_hours,
                 analysis_context_max_records=analysis_context_max_records,
+                data_cache_ttl_seconds=data_cache_ttl_seconds,
             ),
         )

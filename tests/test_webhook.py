@@ -430,6 +430,11 @@ class _FakeHistoryService:
         self.health_exc: Exception | None = None
         self.hang_event: asyncio.Event | None = None
         self.calls: list[str] = []
+        self.ttls: dict[str, set[float]] = {}
+
+    def _record(self, name: str, ttl: float) -> None:
+        self.calls.append(name)
+        self.ttls.setdefault(name, set()).add(ttl)
 
     async def list_systems(self):
         self.calls.append("list_systems")
@@ -437,22 +442,22 @@ class _FakeHistoryService:
             await self.hang_event.wait()
         return self.systems
 
-    async def get_system_history(self, _system_id, _range):
-        self.calls.append("get_system_history")
+    async def get_system_history(self, _system_id, _range, *, ttl=0):
+        self._record("get_system_history", ttl)
         if self.hang_event is not None:
             await self.hang_event.wait()
         if self.history_exc is not None:
             raise self.history_exc
         return self.view
 
-    async def get_system_detail(self, _system_id):
-        self.calls.append("get_system_detail")
+    async def get_system_detail(self, _system_id, *, ttl=0):
+        self._record("get_system_detail", ttl)
         if self.hang_event is not None:
             await self.hang_event.wait()
         return self.detail
 
-    async def get_system_health(self, _system_id):
-        self.calls.append("get_system_health")
+    async def get_system_health(self, _system_id, *, ttl=0):
+        self._record("get_system_health", ttl)
         if self.hang_event is not None:
             await self.hang_event.wait()
         if self.health_exc is not None:
@@ -1657,6 +1662,51 @@ async def test_webhook_analysis_prepends_configured_persona(
             f"Configured analysis persona {persona_id} is missing or has no prompt; "
             "analysing without it (request_id=persona-1)"
         ]
+
+
+@pytest.mark.asyncio
+async def test_webhook_queries_use_the_alert_cache_ttl() -> None:
+    renderer = _FakeRenderer()
+    detail = SystemDetailView(
+        summary=SystemSummary(id="s1", name="Node", status="up"),
+        metrics=SystemMetrics(stats={"cpu": 80.0}),
+    )
+    service = _FakeHistoryService(
+        view=SystemHistoryView(
+            summary=SystemSummary(id="s1", name="Node", status="up"),
+            range=HistoryRange.ONE_HOUR,
+        ),
+        detail=detail,
+    )
+    delivery = WebhookDelivery(
+        context=_FakeContext(providers={"target:umo1": _FakeProvider()}),
+        config=WebhookConfig(
+            enabled=True, target_umos=("target:umo1",), data_cache_ttl_seconds=25
+        ),
+        service=service,
+        renderer=renderer,
+    )
+    notification = NormalizedNotification(
+        request_id="ttl-1",
+        source=NotificationSource.BESZEL,
+        title="Title",
+        message="Msg",
+        send_history=True,
+        history_system_id="s1",
+        send_analysis=True,
+    )
+
+    await delivery.deliver(notification)
+    await _drain(delivery)
+    await delivery.close()
+
+    # Both the history image and the analysis read with the configured TTL.
+    assert service.ttls == {
+        "get_system_history": {25},
+        "get_system_detail": {25},
+        "get_system_health": {25},
+    }
+    assert service.calls.count("get_system_history") == 2
 
 
 @pytest.mark.asyncio

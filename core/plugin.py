@@ -59,7 +59,8 @@ class BeszelPlugin(Star):
             default_history_range=HistoryRange.parse(
                 self.config.beszel.history_default_range
             ),
-            cache_ttl=self.config.beszel.cache_ttl_seconds,
+            system_list_cache_ttl=self.config.beszel.system_list_cache_ttl_seconds,
+            hardware_cache_ttl=self.config.beszel.hardware_cache_ttl_seconds,
         )
         self.renderer = BeszelRenderer(
             plugin_name="astrbot_plugin_beszel",
@@ -119,6 +120,10 @@ class BeszelPlugin(Star):
         except Exception:
             logger.error("Rendering engine shutdown failed", exc_info=True)
         try:
+            await self.service.close()
+        except Exception:
+            logger.error("Beszel query service shutdown failed", exc_info=True)
+        try:
             await self.client.close()
         except Exception:
             logger.error("Beszel client shutdown failed", exc_info=True)
@@ -132,6 +137,7 @@ class BeszelPlugin(Star):
         history_range: str | None = None,
     ) -> QueryOutput:
         self.access.require_query_access(event)
+        ttl = self.config.beszel.command_cache_ttl_seconds
         if kind == "list":
             systems = await self.service.list_systems()
             return QueryOutput(
@@ -139,7 +145,7 @@ class BeszelPlugin(Star):
                 f"Sent Beszel system list: {len(systems)} systems",
             )
         if kind == "overview":
-            systems = await self.service.get_overview()
+            systems = await self.service.get_overview(ttl=ttl)
             if not systems:
                 return QueryOutput(
                     [
@@ -165,7 +171,7 @@ class BeszelPlugin(Star):
                 "⚠️ 请提供要查询的探针名称或 ID（例如：/beszel status my-server）"
             )
         if kind == "status":
-            view = await self.service.get_system_detail(selector)
+            view = await self.service.get_system_detail(selector, ttl=ttl)
             image = await self.renderer.render_status(view)
             return QueryOutput(
                 [[Image.fromBytes(image)]],
@@ -174,6 +180,7 @@ class BeszelPlugin(Star):
         view = await self.service.get_system_history(
             selector,
             history_range,
+            ttl=ttl,
         )
         image = await self.renderer.render_history(view)
         return QueryOutput(

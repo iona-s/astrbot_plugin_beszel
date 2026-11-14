@@ -12,13 +12,24 @@ def test_minimal_config_uses_documented_defaults(config_data) -> None:
     assert config.beszel.base_url == expected["base_url"]
     assert config.beszel.timeout_seconds == expected["timeout_seconds"]
     assert config.beszel.history_default_range == expected["history_default_range"]
-    assert config.beszel.cache_ttl_seconds == expected["cache_ttl_seconds"]
+    assert (
+        config.beszel.system_list_cache_ttl_seconds
+        == expected["system_list_cache_ttl_seconds"]
+    )
     assert config.access.mode == expected["access_mode"]
     assert config.render.page_size == expected["page_size"]
     assert config.render.render_scale == expected["render_scale"]
     assert config.webhook.enabled is expected["webhook_enabled"]
     assert config.webhook.analysis_provider_id == expected["analysis_provider_id"]
     assert config.webhook.analysis_persona_id == expected["analysis_persona_id"]
+    assert (
+        config.beszel.command_cache_ttl_seconds == expected["command_cache_ttl_seconds"]
+    )
+    assert (
+        config.beszel.hardware_cache_ttl_seconds
+        == expected["hardware_cache_ttl_seconds"]
+    )
+    assert config.webhook.data_cache_ttl_seconds == expected["data_cache_ttl_seconds"]
     assert config.webhook.analysis_prompt == expected["analysis_prompt"]
     assert (
         config.webhook.analysis_timeout_seconds == expected["analysis_timeout_seconds"]
@@ -42,7 +53,10 @@ def test_complete_config_normalizes_values(config_data) -> None:
 
     assert config.beszel.base_url == expected["base_url"]
     assert config.beszel.history_default_range == expected["history_default_range"]
-    assert config.beszel.cache_ttl_seconds == expected["cache_ttl_seconds"]
+    assert (
+        config.beszel.system_list_cache_ttl_seconds
+        == expected["system_list_cache_ttl_seconds"]
+    )
     assert config.access.allowed_umos == tuple(expected["allowed_umos"])
     assert config.display.timezone == expected["timezone"]
     assert config.render.font_path == expected["font_path"]
@@ -53,6 +67,14 @@ def test_complete_config_normalizes_values(config_data) -> None:
     assert config.webhook.target_umos == tuple(expected["webhook_target_umos"])
     assert config.webhook.analysis_provider_id == expected["analysis_provider_id"]
     assert config.webhook.analysis_persona_id == expected["analysis_persona_id"]
+    assert (
+        config.beszel.command_cache_ttl_seconds == expected["command_cache_ttl_seconds"]
+    )
+    assert (
+        config.beszel.hardware_cache_ttl_seconds
+        == expected["hardware_cache_ttl_seconds"]
+    )
+    assert config.webhook.data_cache_ttl_seconds == expected["data_cache_ttl_seconds"]
     assert config.webhook.analysis_prompt == expected["analysis_prompt"]
     assert (
         config.webhook.analysis_timeout_seconds == expected["analysis_timeout_seconds"]
@@ -85,9 +107,13 @@ def test_astrbot_timezone_is_used_when_display_timezone_is_empty(config_data) ->
         "access_mode",
         "timezone",
         "page_size",
-        "cache_ttl_negative",
-        "cache_ttl_overflow",
-        "cache_ttl_type",
+        "system_list_cache_ttl_negative",
+        "system_list_cache_ttl_overflow",
+        "system_list_cache_ttl_type",
+        "command_cache_ttl_overflow",
+        "command_cache_ttl_type",
+        "hardware_cache_ttl_negative",
+        "hardware_cache_ttl_overflow",
         "render_scale_low",
         "render_scale_high",
         "render_scale_type",
@@ -128,14 +154,18 @@ def test_null_verify_tls_keeps_certificate_verification(config_data) -> None:
     assert complete.beszel.verify_tls is False
 
 
-def test_cache_ttl_fixtures_support_disabled_and_fallback(config_data) -> None:
-    disabled = PluginConfig.from_mapping(config_data["cache_ttl_disabled"])
-    assert disabled.beszel.cache_ttl_seconds == 0
+def test_system_list_cache_ttl_fixtures_support_disabled_and_fallback(
+    config_data,
+) -> None:
+    disabled = PluginConfig.from_mapping(config_data["system_list_cache_ttl_disabled"])
+    assert disabled.beszel.system_list_cache_ttl_seconds == 0
 
-    fallback = PluginConfig.from_mapping(config_data["cache_ttl_default_fallback"])
+    fallback = PluginConfig.from_mapping(
+        config_data["system_list_cache_ttl_default_fallback"]
+    )
     assert (
-        fallback.beszel.cache_ttl_seconds
-        == config_data["expected"]["minimal"]["cache_ttl_seconds"]
+        fallback.beszel.system_list_cache_ttl_seconds
+        == config_data["expected"]["minimal"]["system_list_cache_ttl_seconds"]
     )
 
 
@@ -236,3 +266,13 @@ def test_analysis_context_config_cases(config_data) -> None:
             webhook.analysis_context_recent_hours,
             webhook.analysis_context_max_records,
         ] == case["expected"], case["raw"]
+
+
+def test_invalid_alert_cache_ttl_falls_back_to_default() -> None:
+    for value in (-1, 301, "10", True):
+        config = PluginConfig.from_mapping(
+            {"webhook": {"data_cache_ttl_seconds": value}}
+        )
+        assert config.webhook.data_cache_ttl_seconds == 10, value
+    zero = PluginConfig.from_mapping({"webhook": {"data_cache_ttl_seconds": 0}})
+    assert zero.webhook.data_cache_ttl_seconds == 0

@@ -5,6 +5,22 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，并遵循
 [语义化版本 2.0.0](https://semver.org/lang/zh-CN/)。
 
+## [未发布]
+
+### ✨ 新增
+
+- 新增配置项 `beszel.command_cache_ttl_seconds`、`beszel.hardware_cache_ttl_seconds` 与
+  `webhook.data_cache_ttl_seconds`，可分别设置指令查询、硬件信息与 SMART、告警处理复用 Hub 数据的时长。
+
+### 🎨 优化
+
+- 同一条告警的历史图与 AI 诊断不再重复查询 Hub，减少 Hub 请求。
+
+### 🔄 变更
+
+- 配置项 `beszel.cache_ttl_seconds` 更名为 `beszel.system_list_cache_ttl_seconds`；
+  修改过该项的用户需要重新设置，否则会恢复为默认的 60 秒。
+
 ## [v1.2.1] - 2026-10-11
 
 ### ✨ 新增

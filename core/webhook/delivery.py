@@ -170,7 +170,9 @@ class WebhookDelivery:
 
         try:
             view = await self.service.get_system_history(
-                notification.history_system_id, HistoryRange.ONE_HOUR
+                notification.history_system_id,
+                HistoryRange.ONE_HOUR,
+                ttl=self.config.data_cache_ttl_seconds,
             )
             image_bytes = await self.renderer.render_history(view)
             logger.debug(
@@ -235,7 +237,9 @@ class WebhookDelivery:
         try:
             detail: SystemDetailView | None = None
             try:
-                detail = await self.service.get_system_detail(system_id)
+                detail = await self.service.get_system_detail(
+                    system_id, ttl=self.config.data_cache_ttl_seconds
+                )
             except Exception as exc:
                 logger.warning(
                     "Webhook analysis detail query failed (request_id=%s): %s",
@@ -246,7 +250,9 @@ class WebhookDelivery:
             history: SystemHistoryView | None = None
             try:
                 history = await self.service.get_system_history(
-                    system_id, HistoryRange.ONE_HOUR
+                    system_id,
+                    HistoryRange.ONE_HOUR,
+                    ttl=self.config.data_cache_ttl_seconds,
                 )
             except Exception as exc:
                 logger.warning(
@@ -257,7 +263,9 @@ class WebhookDelivery:
 
             health: SystemHealthView | None = None
             try:
-                health = await self.service.get_system_health(system_id)
+                health = await self.service.get_system_health(
+                    system_id, ttl=self.config.data_cache_ttl_seconds
+                )
             except Exception as exc:
                 logger.warning(
                     "Webhook analysis health query failed (request_id=%s): %s",

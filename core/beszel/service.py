@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import contextlib
-import time
 from datetime import UTC, datetime
 
 from astrbot.api import logger
@@ -12,6 +10,7 @@ from astrbot.api import logger
 from ..errors import AmbiguousSystemError, SystemNotFoundError
 from ..formatters import status_state
 from .client import BeszelClient
+from .hub_data import HubData
 from .models import (
     ContainerHistoryPoint,
     HistoryRange,
@@ -32,43 +31,45 @@ class QueryService:
         client: BeszelClient,
         *,
         default_history_range: HistoryRange,
-        cache_ttl: float = 60.0,
+        system_list_cache_ttl: float = 60.0,
+        hardware_cache_ttl: float = 600.0,
     ) -> None:
-        self.client = client
+        """Create the service over one Hub client.
+
+        Args:
+            client: Hub client wrapped by the shared ``HubData`` layer.
+            default_history_range: Range used when a query names none.
+            system_list_cache_ttl: Seconds a system list may be reused to resolve selectors.
+            hardware_cache_ttl: Seconds hardware details and SMART state may be
+                reused by queries that allow caching (``ttl > 0``).
+        """
+        self.data = HubData(client)
         self.default_history_range = default_history_range
-        self.cache_ttl = max(0.0, float(cache_ttl))
-        self._cached_systems: tuple[SystemSummary, ...] | None = None
-        self._cache_expires_at: float = 0.0
-        self._cache_lock = asyncio.Lock()
+        self.system_list_cache_ttl = max(0.0, float(system_list_cache_ttl))
+        self.hardware_cache_ttl = max(0.0, float(hardware_cache_ttl))
+
+    async def close(self) -> None:
+        await self.data.close()
+
+    def _hardware_ttl(self, ttl: float) -> float:
+        return self.hardware_cache_ttl if ttl > 0 else 0.0
 
     async def list_systems(self) -> list[SystemSummary]:
-        # Without a TTL nothing is cached, so concurrent callers fetch in parallel.
-        caching = self.cache_ttl > 0
-        async with self._cache_lock if caching else contextlib.nullcontext():
-            if (
-                self._cached_systems is not None
-                and time.monotonic() < self._cache_expires_at
-            ):
-                logger.debug(
-                    "QueryService.list_systems: cache hit (%d systems)",
-                    len(self._cached_systems),
-                )
-                return list(self._cached_systems)
+        """Return the system list used to resolve selectors, reused for ``system_list_cache_ttl``."""
+        systems = sorted(
+            await self.data.list_systems(ttl=self.system_list_cache_ttl),
+            key=self._sort_key,
+        )
+        logger.debug(
+            "QueryService.list_systems: %d systems (ttl=%.1fs): %s",
+            len(systems),
+            self.system_list_cache_ttl,
+            [(s.name, s.id, s.status) for s in systems],
+        )
+        return systems
 
-            systems = sorted(await self.client.list_systems(), key=self._sort_key)
-            if caching:
-                self._cached_systems = tuple(systems)
-                self._cache_expires_at = time.monotonic() + self.cache_ttl
-            logger.debug(
-                "QueryService.list_systems: retrieved %d systems (ttl=%.1fs): %s",
-                len(systems),
-                self.cache_ttl,
-                [(s.name, s.id, s.status) for s in systems],
-            )
-            return systems
-
-    async def get_overview(self) -> list[SystemSummary]:
-        systems = await self.client.list_systems()
+    async def get_overview(self, *, ttl: float = 0) -> list[SystemSummary]:
+        systems = await self.data.list_systems(ttl=ttl)
         sorted_systems = sorted(
             systems,
             key=lambda system: (
@@ -81,14 +82,17 @@ class QueryService:
         )
         return sorted_systems
 
-    async def get_system_detail(self, selector: str) -> SystemDetailView:
+    async def get_system_detail(
+        self, selector: str, *, ttl: float = 0
+    ) -> SystemDetailView:
         """Build the current status view for one system.
 
         The cached system list only resolves the selector; the summary is read
-        live so its status is never up to ``cache_ttl`` seconds stale.
+        with the caller's ``ttl``, so its status is never older than that.
 
         Args:
             selector: System ID, exact name, or unique partial name.
+            ttl: Seconds Hub results may be reused; 0 always queries the Hub.
 
         Returns:
             The live summary with details, latest metrics, and containers.
@@ -102,10 +106,10 @@ class QueryService:
             system.id,
         )
         summary, details, metrics, containers = await asyncio.gather(
-            self.client.get_system(system.id),
-            self.client.get_system_details(system.id),
-            self.client.get_latest_metrics(system.id),
-            self.client.get_latest_containers(system.id),
+            self.data.get_system(system.id, ttl=ttl),
+            self.data.get_system_details(system.id, ttl=self._hardware_ttl(ttl)),
+            self.data.get_latest_metrics(system.id, ttl=ttl),
+            self.data.get_latest_containers(system.id, ttl=ttl),
         )
         logger.debug(
             "QueryService.get_system_detail: id=%s status=%s details=%s metrics=%s containers=%d",
@@ -122,7 +126,9 @@ class QueryService:
             containers=containers,
         )
 
-    async def get_system_health(self, system_id: str) -> SystemHealthView:
+    async def get_system_health(
+        self, system_id: str, *, ttl: float = 0
+    ) -> SystemHealthView:
         """Read container states, failed services, and failed SMART disks.
 
         The three reads are independent: a failed read is logged and leaves its
@@ -130,14 +136,15 @@ class QueryService:
 
         Args:
             system_id: Beszel system record ID.
+            ttl: Seconds Hub results may be reused; 0 always queries the Hub.
 
         Returns:
             The health view of the system.
         """
         results = await asyncio.gather(
-            self.client.list_container_states(system_id),
-            self.client.list_failed_services(system_id),
-            self.client.list_failed_smart_devices(system_id),
+            self.data.list_container_states(system_id, ttl=ttl),
+            self.data.list_failed_services(system_id, ttl=ttl),
+            self.data.list_failed_smart_devices(system_id, ttl=self._hardware_ttl(ttl)),
             return_exceptions=True,
         )
         parts: list[list | None] = []
@@ -166,6 +173,8 @@ class QueryService:
         self,
         selector: str,
         history_range: HistoryRange | str | None = None,
+        *,
+        ttl: float = 0,
     ) -> SystemHistoryView:
         """Build the history view for one system.
 
@@ -176,6 +185,7 @@ class QueryService:
         Args:
             selector: System ID, exact name, or unique partial name.
             history_range: Requested range; ``None`` or blank uses the default.
+            ttl: Seconds Hub results may be reused; 0 always queries the Hub.
 
         Returns:
             The live summary with system and container history points, and the
@@ -204,7 +214,9 @@ class QueryService:
 
         async def optional_details() -> SystemDetails | None:
             try:
-                return await self.client.get_system_details(system.id)
+                return await self.data.get_system_details(
+                    system.id, ttl=self._hardware_ttl(ttl)
+                )
             except Exception:
                 logger.debug(
                     "QueryService.get_system_history: optional details query skipped for id=%s",
@@ -214,9 +226,9 @@ class QueryService:
 
         window_end = datetime.now(UTC)
         summary, metrics, container_metrics, system_details = await asyncio.gather(
-            self.client.get_system(system.id),
-            self.client.get_history(system.id, parsed_range),
-            self.client.get_container_history(system.id, parsed_range),
+            self.data.get_system(system.id, ttl=ttl),
+            self.data.get_history(system.id, parsed_range, ttl=ttl),
+            self.data.get_container_history(system.id, parsed_range, ttl=ttl),
             optional_details(),
         )
         points = [

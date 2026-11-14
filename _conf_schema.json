@@ -14,7 +14,19 @@
       "timeout_seconds": {"type": "int", "description": "请求超时（秒）", "default": 10, "slider": {"min": 2, "max": 60, "step": 1}},
       "verify_tls": {"type": "bool", "description": "验证 TLS 证书", "default": true},
       "history_default_range": {"type": "string", "description": "默认历史范围", "options": ["1h", "12h", "24h", "1w", "30d"], "default": "1h"},
-      "cache_ttl_seconds": {"type": "int", "description": "探针列表缓存时长（秒）", "hint": "缓存探针列表以减少 Hub 请求；设为 0 即禁用缓存", "default": 60, "slider": {"min": 0, "max": 300, "step": 5}}
+      "system_list_cache_ttl_seconds": {"type": "int", "description": "探针列表缓存时长（秒）", "hint": "缓存探针列表以减少 Hub 请求；设为 0 即禁用缓存", "default": 60, "slider": {"min": 0, "max": 300, "step": 5}},
+      "command_cache_ttl_seconds": {
+        "type": "int",
+        "description": "指令查询数据缓存时长（秒）",
+        "hint": "指令与 LLM 工具查询节点数据时可复用多久以内的查询结果；0 表示每次都向 Hub 查询最新数据，范围 0 到 300",
+        "default": 0
+      },
+      "hardware_cache_ttl_seconds": {
+        "type": "int",
+        "description": "硬件信息与 SMART 缓存时长（秒）",
+        "hint": "硬件信息与硬盘 SMART 状态很少变化，在允许缓存的查询中可复用多久以内的结果；对缓存时长为 0 的查询不生效，范围 0 到 3600",
+        "default": 600
+      }
     }
   },
   "access": {
@@ -79,6 +91,12 @@
         "default": ""
       },
       "target_umos": {"type": "list", "description": "通知目标 UMO", "items": {"type": "string"}, "default": []},
+      "data_cache_ttl_seconds": {
+        "type": "int",
+        "description": "告警数据缓存时长（秒）",
+        "hint": "同一告警的历史图与 AI 诊断及短时间内的多条告警，可复用多久以内的节点数据；0 表示每次都重新查询，范围 0 到 300",
+        "default": 10
+      },
       "analysis_provider_id": {
         "type": "string",
         "description": "AI 诊断使用的模型（留空使用目标会话模型）",
