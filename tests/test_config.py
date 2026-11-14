@@ -209,6 +209,12 @@ def test_container_history_threshold_config_parsing_and_validation() -> None:
             )
 
 
+def test_history_detail_charts_are_off_by_default() -> None:
+    assert PluginConfig.from_mapping({}).render.history_detail_charts is False
+    enabled = PluginConfig.from_mapping({"render": {"history_detail_charts": True}})
+    assert enabled.render.history_detail_charts is True
+
+
 @pytest.mark.parametrize(
     "case_name",
     [

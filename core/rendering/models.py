@@ -20,6 +20,8 @@ class ChartUnit(StrEnum):
     WATTS = "watts"
     TEMPERATURE = "temp"
     RPM = "rpm"
+    MILLISECONDS = "ms"
+    # Plain numbers such as load averages and queue depths.
     LOAD = "load"
 
 
@@ -151,6 +153,11 @@ class HistoryChartCard:
     # Starts a new chart grid on a fresh row, like the Hub's separate grids for
     # extra filesystems and storage pools, so usage/I-O pairs stay side by side.
     starts_section: bool = False
+    # Series are listed top to bottom with cumulative values sharing the same
+    # samples; each area fills down to the next series instead of the axis.
+    stacked: bool = False
+    # Lines only, for overlapping series such as sensors or CPU cores.
+    filled: bool = True
 
 
 @dataclass(frozen=True, slots=True)

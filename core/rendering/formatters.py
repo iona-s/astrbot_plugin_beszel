@@ -121,5 +121,9 @@ def format_chart_value(value: object, unit: ChartUnit) -> str:
         return f"{numeric:.1f} °C"
     if unit is ChartUnit.RPM:
         return f"{round(numeric)} RPM"
+    if unit is ChartUnit.MILLISECONDS:
+        if abs(numeric - round(numeric)) < 0.05:
+            return f"{round(numeric)} ms"
+        return f"{numeric:.1f} ms"
     # ChartUnit.LOAD is the only remaining unit.
     return f"{numeric:.2f}"

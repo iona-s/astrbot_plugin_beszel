@@ -73,6 +73,12 @@
         "hint": "图片渲染分辨率缩放比例；100 为标准精细度，调高可提升清晰度但增加资源占用，调低则反之",
         "default": 100,
         "slider": {"min": 50, "max": 300, "step": 5}
+      },
+      "history_detail_charts": {
+        "type": "bool",
+        "description": "历史图显示细分图表",
+        "hint": "加入 Beszel 网页“查看更多”中的 CPU 时间细分、CPU 核心、磁盘 I/O 利用率/延迟/队列深度与按网卡流量图表，会明显加长历史图",
+        "default": false
       }
     }
   },

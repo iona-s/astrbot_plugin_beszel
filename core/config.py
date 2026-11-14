@@ -93,6 +93,7 @@ class RenderConfig:
     font_path: str = ""
     container_history_threshold: int = 10
     render_scale: int = 100
+    history_detail_charts: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -350,6 +351,9 @@ class PluginConfig:
                 font_path=_opt_str(render_raw.get("font_path")),
                 container_history_threshold=container_threshold,
                 render_scale=render_scale,
+                history_detail_charts=bool(
+                    render_raw.get("history_detail_charts", False)
+                ),
             ),
             webhook=WebhookConfig(
                 enabled=enabled,

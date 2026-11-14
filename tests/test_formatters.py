@@ -13,9 +13,11 @@ from astrbot_plugin_beszel.core.formatters import (
 from astrbot_plugin_beszel.core.rendering.formatters import (
     format_bandwidth,
     format_bytes,
+    format_chart_value,
     format_gb,
     format_mb,
 )
+from astrbot_plugin_beszel.core.rendering.models import ChartUnit
 
 
 def test_resolve_timezone_uses_named_zone_or_host_local_time(rendering_data) -> None:
@@ -59,3 +61,8 @@ def test_byte_values_use_hub_style_units() -> None:
     assert format_mb(768) == "768.0 MB"
     assert format_bandwidth(15.1 * 1024**2) == "15.1 MB/s"
     assert format_bytes(None) == "N/A"
+
+
+def test_millisecond_axis_labels() -> None:
+    assert format_chart_value(12.0, ChartUnit.MILLISECONDS) == "12 ms"
+    assert format_chart_value(55.21, ChartUnit.MILLISECONDS) == "55.2 ms"

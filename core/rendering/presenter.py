@@ -47,6 +47,7 @@ from .models import (
     StoragePoolRow,
 )
 from .styles import (
+    SERIES_PALETTE,
     dynamic_series_color,
     metric_color,
     series_color,
@@ -101,11 +102,13 @@ class PresentationBuilder:
         show_connection_address: bool,
         display_timezone: tzinfo | None,
         container_history_threshold: int = 10,
+        history_detail_charts: bool = False,
     ) -> None:
         self.plugin_name = plugin_name
         self.show_connection_address = show_connection_address
         self.display_timezone = display_timezone
         self.container_history_threshold = container_history_threshold
+        self.history_detail_charts = history_detail_charts
 
     def build_overview(
         self,
@@ -849,6 +852,7 @@ class PresentationBuilder:
                 temp_specs,
                 gap_seconds,
                 extra_series_count=extra_count,
+                filled=False,
             )
 
         fan_points: dict[str, list[tuple[datetime, float]]] = {}
@@ -966,6 +970,10 @@ class PresentationBuilder:
                     maximum_override=total_vram,
                 )
 
+        detail_start = len(cards)
+        if self.history_detail_charts:
+            cards.extend(self._detail_cards(valid_points, gap_seconds))
+
         filesystems_start = len(cards)
         filesystem_names = sorted(
             {
@@ -1075,9 +1083,232 @@ class PresentationBuilder:
                     gap_seconds,
                 )
 
-        for start in (filesystems_start, pools_start):
+        for start in (detail_start, filesystems_start, pools_start):
             if start < len(cards):
                 cards[start] = replace(cards[start], starts_section=True)
+        return cards
+
+    def _detail_cards(
+        self,
+        valid_points: list[tuple[datetime, dict[str, Any]]],
+        gap_seconds: float,
+    ) -> list[HistoryChartCard]:
+        """Build the charts behind the Hub's "View more" buttons.
+
+        These are the CPU time breakdown, per-core CPU, root disk utilization,
+        await, and queue depth, and per-interface traffic. A static image cannot
+        open the Hub's side sheets, so per-core and per-interface charts keep
+        only the busiest series and report the rest as ``+N``.
+        """
+        cards: list[HistoryChartCard] = []
+
+        # cpub: [user, system, iowait, steal, idle, irq, softirq, nice]; agents
+        # before v0.21.1 send only the first five. Bands follow the Hub's stack,
+        # listed top to bottom, with its colors.
+        bands_by_index = (
+            (1, "系统", SERIES_PALETTE[2]),
+            (0, "用户", SERIES_PALETTE[0]),
+            (2, "IOWait", SERIES_PALETTE[3]),
+            (3, "Steal", SERIES_PALETTE[4]),
+            (4, "空闲", SERIES_PALETTE[1]),
+            (5, "IRQ", (38, 172, 217)),
+            (6, "SoftIRQ", (231, 198, 35)),
+            (7, "Nice", (209, 71, 209)),
+        )
+        breakdown = [
+            (created, [safe_float(value) or 0.0 for value in stats["cpub"]])
+            for created, stats in valid_points
+            if isinstance(stats.get("cpub"), (list, tuple)) and stats["cpub"]
+        ]
+        bands = [
+            (
+                name,
+                color,
+                [
+                    values[index] if index < len(values) else 0.0
+                    for _, values in breakdown
+                ],
+            )
+            for index, name, color in bands_by_index
+        ]
+        bands.append(
+            (
+                "其他",
+                (159, 212, 53),
+                [max(0.0, 100.0 - sum(values)) for _, values in breakdown],
+            )
+        )
+        # Bands that stay near zero add nothing to the stack but a legend entry.
+        bands = [band for band in bands if any(value >= 0.05 for value in band[2])]
+        totals = [0.0] * len(breakdown)
+        stacked_specs: list[tuple[str, list[tuple[datetime, float]], Any]] = []
+        for name, color, values in reversed(bands):
+            totals = [
+                total + value for total, value in zip(totals, values, strict=True)
+            ]
+            stacked_specs.append(
+                (
+                    name,
+                    [
+                        (created, total)
+                        for (created, _), total in zip(breakdown, totals, strict=True)
+                    ],
+                    color,
+                )
+            )
+        self._append_chart(
+            cards,
+            "CPU 时间细分",
+            "在每个状态下花费的时间百分比",
+            ChartUnit.PERCENT,
+            stacked_specs[::-1],
+            gap_seconds,
+            stacked=True,
+        )
+
+        core_points: dict[int, list[tuple[datetime, float]]] = {}
+        for created, stats in valid_points:
+            cores = stats.get("cpus")
+            for index, raw in enumerate(
+                cores if isinstance(cores, (list, tuple)) else ()
+            ):
+                if (value := safe_float(raw)) is not None:
+                    core_points.setdefault(index, []).append((created, value))
+        core_count = max(core_points, default=-1) + 1
+        busiest_cores = sorted(
+            core_points,
+            key=lambda index: (-max(value for _, value in core_points[index]), index),
+        )[:8]
+        self._append_chart(
+            cards,
+            "CPU 核心",
+            "每个核心的平均利用率",
+            ChartUnit.PERCENT,
+            [
+                (
+                    f"CPU {index}",
+                    core_points[index],
+                    dynamic_series_color(
+                        index,
+                        core_count,
+                        saturation=0.65,
+                        lightness=0.52,
+                        base_hue=226.0,
+                    ),
+                )
+                for index in sorted(busiest_cores)
+            ],
+            gap_seconds,
+            extra_series_count=len(core_points) - len(busiest_cores),
+            filled=False,
+        )
+
+        # dios: [read time %, write time %, utilization %, r_await ms,
+        # w_await ms, queue depth x 100]; like the Hub, a chart without any
+        # non-zero sample is left out.
+        dios_samples = [
+            (created, stats["dios"])
+            for created, stats in valid_points
+            if isinstance(stats.get("dios"), (list, tuple))
+        ]
+
+        def dios_series(index: int, scale: float = 1.0) -> list[tuple[datetime, float]]:
+            return [
+                (created, (safe_float(dios[index]) or 0.0) / scale)
+                for created, dios in dios_samples
+                if len(dios) > index
+            ]
+
+        utilization = dios_series(2)
+        read_await, write_await = dios_series(3), dios_series(4)
+        queue_depth = dios_series(5, 100.0)
+        if any(value > 0 for _, value in utilization):
+            self._append_chart(
+                cards,
+                "I/O 利用率",
+                "磁盘用于 I/O 操作的繁忙时间百分比",
+                ChartUnit.PERCENT,
+                [("利用率", utilization, "disk_io")],
+                gap_seconds,
+            )
+        if any(value > 0 for _, value in read_await):
+            self._append_chart(
+                cards,
+                "I/O 延迟",
+                "每次操作的平均队列到完成时间",
+                ChartUnit.MILLISECONDS,
+                [("读取", read_await, "disk_io"), ("写入", write_await, "disk_io")],
+                gap_seconds,
+            )
+        if any(value > 0 for _, value in queue_depth):
+            self._append_chart(
+                cards,
+                "队列深度",
+                "等待处理的 I/O 操作平均数量",
+                ChartUnit.LOAD,
+                [("队列深度", queue_depth, "disk_io")],
+                gap_seconds,
+            )
+
+        # ni: {interface: [sent B/s, received B/s, total sent, total received]}.
+        # Like the Hub, the newest sample lists the interfaces, ordered and
+        # colored by total received bytes.
+        latest_interfaces = valid_points[-1][1].get("ni") if valid_points else None
+        if isinstance(latest_interfaces, dict) and latest_interfaces:
+            received_totals = {
+                str(name): (
+                    safe_float(values[3])
+                    if isinstance(values, (list, tuple)) and len(values) > 3
+                    else None
+                )
+                or 0.0
+                for name, values in latest_interfaces.items()
+            }
+            interfaces = sorted(
+                received_totals, key=lambda name: (-received_totals[name], name)
+            )
+            colors = {
+                name: dynamic_series_color(
+                    index,
+                    len(interfaces),
+                    saturation=0.70,
+                    lightness=0.50,
+                    base_hue=220.0,
+                )
+                for index, name in enumerate(interfaces)
+            }
+            for title, subtitle, field in (
+                ("按网卡下行", "各网卡的接收流量", 1),
+                ("按网卡上行", "各网卡的发送流量", 0),
+            ):
+                traffic: dict[str, list[tuple[datetime, float]]] = {}
+                for created, stats in valid_points:
+                    sample = stats.get("ni")
+                    for name in interfaces:
+                        values = sample.get(name) if isinstance(sample, dict) else None
+                        if (
+                            isinstance(values, (list, tuple))
+                            and len(values) > field
+                            and (value := safe_float(values[field])) is not None
+                        ):
+                            traffic.setdefault(name, []).append((created, value))
+                busiest = sorted(
+                    traffic,
+                    key=lambda name: -max(value for _, value in traffic[name]),
+                )[:6]
+                self._append_chart(
+                    cards,
+                    title,
+                    subtitle,
+                    ChartUnit.BYTES_PER_SECOND,
+                    [
+                        (name, traffic[name], colors[name])
+                        for name in interfaces
+                        if name in busiest
+                    ],
+                    gap_seconds,
+                    extra_series_count=len(traffic) - len(busiest),
+                )
         return cards
 
     def _container_history_cards(
@@ -1194,6 +1425,8 @@ class PresentationBuilder:
         *,
         maximum_override: float | None = None,
         extra_series_count: int = 0,
+        stacked: bool = False,
+        filled: bool = True,
     ) -> None:
         series: list[ChartSeries] = []
         for index, (name, raw_points, metric_key) in enumerate(series_specs):
@@ -1234,6 +1467,8 @@ class PresentationBuilder:
                 axis_min=axis_min,
                 axis_max=axis_max,
                 extra_series_count=extra_series_count,
+                stacked=stacked,
+                filled=filled,
             )
         )
 
@@ -1281,6 +1516,8 @@ class PresentationBuilder:
             return low, max(low + 10.0, maximum + 5.0)
         if unit is ChartUnit.RPM:
             return 0.0, max(100.0, max(values, default=1000.0) * 1.15)
+        if unit is ChartUnit.MILLISECONDS:
+            return 0.0, max(1.0, max(values, default=1.0) * 1.15)
         # ChartUnit.LOAD is the only remaining unit.
         return 0.0, max(0.2, max(values, default=1.0) * 1.15)
 

@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta, tzinfo
 
 from ..formatters import format_chart_value
-from ..models import ChartPoint, ChartUnit, Color, HistoryChartCard
+from ..models import ChartPoint, Color, HistoryChartCard
 
 # The 520px card content box splits between a y-axis label column (sized per
 # chart from its widest label) and the SVG; both widths travel in the geometry.
@@ -151,10 +151,9 @@ def build_chart_view(
     width = CONTENT_WIDTH - y_axis_width
     plot_width = width - PLOT_LEFT - PLOT_RIGHT_INSET
 
-    segments: list[ChartSegmentGeometry] = []
-    for series in card.series:
-        for segment in series.segments:
-            coords = [
+    series_coords = [
+        [
+            [
                 _point_xy(
                     point,
                     window_start,
@@ -166,16 +165,37 @@ def build_chart_view(
                 )
                 for point in segment
             ]
+            for segment in series.segments
+        ]
+        for series in card.series
+    ]
+    segments: list[ChartSegmentGeometry] = []
+    for index, series in enumerate(card.series):
+        below = (
+            series_coords[index + 1]
+            if card.stacked and index + 1 < len(series_coords)
+            else None
+        )
+        for segment_index, coords in enumerate(series_coords[index]):
             if not coords:
                 continue
             line_path = _path(coords) if len(coords) > 1 else None
-            area_path = (
-                f"M {coords[0][0]:.2f} {PLOT_BOTTOM:.2f} "
-                f"L {line_path[2:]} "
-                f"L {coords[-1][0]:.2f} {PLOT_BOTTOM:.2f} Z"
-                if (line_path is not None and card.unit != ChartUnit.TEMPERATURE)
+            lower = (
+                below[segment_index]
+                if below is not None and segment_index < len(below)
                 else None
             )
+            if line_path is None or not card.filled:
+                area_path = None
+            elif lower is not None and len(lower) == len(coords):
+                # Trace the band top forward, then the band below it backward.
+                area_path = f"{line_path} L{_path(lower[::-1])[1:]} Z"
+            else:
+                area_path = (
+                    f"M {coords[0][0]:.2f} {PLOT_BOTTOM:.2f} "
+                    f"L {line_path[2:]} "
+                    f"L {coords[-1][0]:.2f} {PLOT_BOTTOM:.2f} Z"
+                )
             markers = (ChartMarker(*coords[0]),) if len(coords) == 1 else ()
             segments.append(
                 ChartSegmentGeometry(

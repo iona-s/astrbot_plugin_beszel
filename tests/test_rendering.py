@@ -13,8 +13,10 @@ import pytest
 from astrbot_plugin_beszel.core.beszel.models import (
     ContainerHistoryMetrics,
     ContainerHistoryPoint,
+    HistoryRange,
     StoragePoolState,
     SystemDetailView,
+    SystemHistoryPoint,
     SystemHistoryView,
     SystemSummary,
 )
@@ -223,6 +225,92 @@ def test_chart_geometry_single_point_segment_has_marker() -> None:
     templates = BeszelTemplateRenderer()
     markup = templates.render_history(doc, timezone=UTC)
     assert '<circle class="chart-marker"' in markup
+
+
+def test_chart_geometry_stacks_bands_and_draws_line_only_cards() -> None:
+    start = datetime(2026, 9, 6, 12, 0, tzinfo=UTC)
+    times = [start + timedelta(minutes=minute) for minute in range(3)]
+
+    def series(name: str, values: list[float]) -> ChartSeries:
+        points = tuple(
+            ChartPoint(created=time, value=value)
+            for time, value in zip(times, values, strict=True)
+        )
+        return ChartSeries(
+            name=name, color=(0, 0, 0), points=points, segments=(points,)
+        )
+
+    card = HistoryChartCard(
+        title="堆叠",
+        subtitle="",
+        unit=ChartUnit.PERCENT,
+        series=(series("top", [100.0] * 3), series("bottom", [40.0, 60.0, 50.0])),
+        axis_min=0.0,
+        axis_max=100.0,
+        stacked=True,
+    )
+    geometry = build_chart_view(card, timezone=UTC).geometry
+    assert geometry is not None
+    top, bottom = geometry.segments
+    assert top.line_path is not None and top.area_path is not None
+    assert bottom.line_path is not None and bottom.area_path is not None
+    # The top band closes along the bottom series traced backwards; only the
+    # lowest band reaches the axis.
+    last_x, last_y = bottom.line_path.split()[-2:]
+    assert top.area_path.startswith(top.line_path)
+    assert f"L {last_x} {last_y}" in top.area_path
+    assert f"{geometry.plot_bottom:.2f}" not in top.area_path
+    assert f"{geometry.plot_bottom:.2f}" in bottom.area_path
+
+    lines = build_chart_view(
+        dataclasses.replace(card, stacked=False, filled=False), timezone=UTC
+    ).geometry
+    assert lines is not None
+    assert all(segment.area_path is None for segment in lines.segments)
+
+
+@pytest.mark.asyncio
+async def test_pytakumi_renders_history_detail_charts(
+    history_data, rendering_data
+) -> None:
+    renderer = BeszelRenderer(
+        plugin_name=rendering_data["plugin_name"],
+        show_connection_address=True,
+        display_timezone=ZoneInfo(rendering_data["display_timezone"]),
+        font_path=None,
+        history_detail_charts=True,
+    )
+    start = datetime(2026, 9, 6, 12, 0, tzinfo=UTC)
+    view = SystemHistoryView(
+        summary=SystemSummary.model_validate(history_data["summary"]),
+        range=HistoryRange.ONE_HOUR,
+        points=[
+            SystemHistoryPoint(
+                created=start + timedelta(minutes=minute),
+                stats={
+                    "cpu": 30.0,
+                    "cpub": [20.0, 5.0, 3.0 + minute, 0.0, 72.0 - minute, 0, 0, 0],
+                    "cpus": [25.0, 35.0],
+                    "dios": [0, 0, 12.0, 1.5, 4.0 + minute, 120],
+                    "ni": {
+                        "eth0": [1000, 4000 * minute, 0, 1],
+                        "eth1": [10, 20, 0, 2],
+                    },
+                },
+            )
+            for minute in range(5)
+        ],
+    )
+    try:
+        markup = BeszelTemplateRenderer().render_history(
+            renderer.presentation.build_history(view), timezone=UTC
+        )
+        for title in ("CPU 时间细分", "CPU 核心", "I/O 延迟", "按网卡上行"):
+            assert title in markup
+        png = await renderer.render_history(view)
+        assert png.startswith(b"\x89PNG\r\n\x1a\n") and len(png) > 1024
+    finally:
+        renderer.close()
 
 
 def test_chart_geometry_data_gap_isolated_single_point() -> None:

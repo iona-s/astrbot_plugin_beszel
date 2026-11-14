@@ -69,6 +69,7 @@ class BeszelPlugin(Star):
             font_path=self.config.render.font_path,
             container_history_threshold=self.config.render.container_history_threshold,
             render_scale=self.config.render.render_scale,
+            history_detail_charts=self.config.render.history_detail_charts,
         )
         self.webhook_server: WebhookServer | None = None
 

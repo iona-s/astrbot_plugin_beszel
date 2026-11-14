@@ -16,6 +16,7 @@ from astrbot_plugin_beszel.core.beszel.models import (
 )
 from astrbot_plugin_beszel.core.rendering.models import ChartUnit
 from astrbot_plugin_beszel.core.rendering.presenter import PresentationBuilder
+from astrbot_plugin_beszel.core.rendering.styles import dynamic_series_color
 
 
 def _builder(rendering_data) -> PresentationBuilder:
@@ -540,6 +541,109 @@ def test_history_storage_pool_table_follows_the_hub(
         "600.0 GB",
     )
     assert tank.updated_text == "2026-08-15 12:30"
+
+
+def _detail_view(history_data) -> SystemHistoryView:
+    start = datetime(2026, 9, 6, 12, 0, tzinfo=UTC)
+    breakdowns = (
+        [20.0, 10.0, 5.0, 0.0, 60.0, 0.0, 3.0, 2.0],
+        [20.0, 10.0, 5.0, 0.0, 60.0, 0.0, 3.0, 2.0],
+        # Agents before v0.21.1 send five values.
+        [25.0, 10.0, 5.0, 0.0, 60.0],
+    )
+    points = [
+        SystemHistoryPoint(
+            created=start + timedelta(minutes=minute),
+            stats={
+                "cpu": 40.0,
+                "cpub": cpub,
+                "cpus": [index * 5.0 for index in range(10)],
+                "dios": [0, 0, 10.0 if minute == 1 else 0, 0, 0, 150],
+                "ni": {
+                    f"eth{index}": [(7 - index) * 10, index * 10, 0, index * 100]
+                    for index in range(8)
+                },
+            },
+        )
+        for minute, cpub in enumerate(breakdowns)
+    ]
+    return SystemHistoryView(
+        summary=SystemSummary.model_validate(history_data["summary"]),
+        range=HistoryRange.ONE_HOUR,
+        points=points,
+    )
+
+
+def test_history_detail_charts_follow_the_hub_sheets(
+    history_data, rendering_data
+) -> None:
+    view = _detail_view(history_data)
+    assert not any(
+        card.title == "CPU 时间细分"
+        for card in _builder(rendering_data).build_history(view).cards
+    )
+    builder = PresentationBuilder(
+        plugin_name=rendering_data["plugin_name"],
+        show_connection_address=True,
+        display_timezone=ZoneInfo(rendering_data["display_timezone"]),
+        history_detail_charts=True,
+    )
+    cards = builder.build_history(view).cards
+
+    titles = [card.title for card in cards]
+    # A separate grid after the main charts; charts without data are left out.
+    assert titles[titles.index("CPU 时间细分") :] == [
+        "CPU 时间细分",
+        "CPU 核心",
+        "I/O 利用率",
+        "队列深度",
+        "按网卡下行",
+        "按网卡上行",
+    ]
+    by_title = {card.title: card for card in cards}
+    assert by_title["CPU 时间细分"].starts_section
+
+    # Stacked like the Hub and listed top to bottom; zero bands are dropped
+    # and five-value samples read the newer states as zero.
+    breakdown = by_title["CPU 时间细分"]
+    assert breakdown.stacked
+    assert [s.name for s in breakdown.series] == [
+        "系统",
+        "用户",
+        "IOWait",
+        "空闲",
+        "SoftIRQ",
+        "Nice",
+    ]
+    assert [[p.value for p in s.points] for s in breakdown.series] == [
+        [100.0, 100.0, 100.0],
+        [90.0, 90.0, 90.0],
+        [70.0, 70.0, 65.0],
+        [65.0, 65.0, 60.0],
+        [5.0, 5.0, 0.0],
+        [2.0, 2.0, 0.0],
+    ]
+
+    # The eight busiest of ten cores, in core order, as lines.
+    cores = by_title["CPU 核心"]
+    assert not cores.filled
+    assert [s.name for s in cores.series] == [f"CPU {i}" for i in range(2, 10)]
+    assert cores.extra_series_count == 2
+    assert cores.series[0].color == dynamic_series_color(
+        2, 10, saturation=0.65, lightness=0.52, base_hue=226.0
+    )
+    assert [p.value for p in by_title["队列深度"].series[0].points] == [1.5] * 3
+
+    # Interfaces keep the Hub order (total received) and their colors in both
+    # directions; each chart keeps its six busiest.
+    received, sent = by_title["按网卡下行"], by_title["按网卡上行"]
+    assert [s.name for s in received.series] == [f"eth{i}" for i in range(7, 1, -1)]
+    assert [s.name for s in sent.series] == [f"eth{i}" for i in range(5, -1, -1)]
+    assert received.extra_series_count == sent.extra_series_count == 2
+    received_colors = {s.name: s.color for s in received.series}
+    for series in sent.series:
+        if series.name in received_colors:
+            assert series.color == received_colors[series.name]
 
 
 def test_fan_and_temperature_dynamic_series_colors(
