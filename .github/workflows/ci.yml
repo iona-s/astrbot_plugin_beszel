@@ -111,6 +111,9 @@ jobs:
               "README.md",
               "requirements.txt",
               "core/assets/BESZEL-LICENSE.txt",
+              "core/assets/LUCIDE-LICENSE.txt",
+              "core/assets/PHOSPHOR-LICENSE.txt",
+              "core/assets/REMIXICON-LICENSE.txt",
               "core/assets/fonts/NotoSansSC-Regular.otf",
               "core/assets/fonts/OFL.txt",
           )

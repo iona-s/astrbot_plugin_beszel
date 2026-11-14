@@ -263,3 +263,9 @@ generic://127.0.0.1:8899/?template=json&disabletls=yes&@Authorization=Bearer%20<
 
 图片中使用的 Beszel 标志衍生自 Beszel Hub 前端，相关版权与 MIT 许可见
 [BESZEL-LICENSE.txt](core/assets/BESZEL-LICENSE.txt)。
+
+图片中的图标沿用 Beszel Hub 前端使用的图标集：Lucide（ISC，部分为 Feather 的 MIT 许可）、
+Phosphor Icons（MIT）与 Remix Icon（Apache 2.0），许可分别见
+[LUCIDE-LICENSE.txt](core/assets/LUCIDE-LICENSE.txt)、
+[PHOSPHOR-LICENSE.txt](core/assets/PHOSPHOR-LICENSE.txt) 与
+[REMIXICON-LICENSE.txt](core/assets/REMIXICON-LICENSE.txt)。
