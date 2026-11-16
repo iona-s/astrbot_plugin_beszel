@@ -258,11 +258,12 @@ class PluginConfig:
         if (
             isinstance(port, bool)
             or not isinstance(port, int)
-            or not 1 <= port <= 65535
+            or not 1024 <= port <= 65535
         ):
             if enabled:
                 logger.error(
-                    "Invalid webhook.port (%s); webhook service will be disabled",
+                    "Invalid webhook.port (%s), expected 1024-65535; "
+                    "webhook service will be disabled",
                     port,
                 )
                 enabled = False

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+
 import pytest
 from astrbot_plugin_beszel.core.config import PluginConfig
 from astrbot_plugin_beszel.core.errors import ConfigurationError
@@ -207,6 +209,21 @@ def test_container_history_threshold_config_parsing_and_validation() -> None:
             PluginConfig.from_mapping(
                 {"render": {"container_history_threshold": invalid}}
             )
+
+
+def test_webhook_port_must_be_unprivileged(astrbot_log_records) -> None:
+    webhook = {"enabled": True, "target_umos": ["fixture:FriendMessage:1"]}
+    for port in (1024, 8899, 65535):
+        config = PluginConfig.from_mapping({"webhook": {**webhook, "port": port}})
+        assert (config.webhook.enabled, config.webhook.port) == (True, port)
+
+    for port in (0, 80, 1023, 65536, True, "8899"):
+        config = PluginConfig.from_mapping({"webhook": {**webhook, "port": port}})
+        # An invalid port disables the webhook instead of failing the plugin.
+        assert (config.webhook.enabled, config.webhook.port) == (False, 8899)
+    errors = [r.getMessage() for r in astrbot_log_records if r.levelno == logging.ERROR]
+    assert len(errors) == 6
+    assert all("expected 1024-65535" in message for message in errors)
 
 
 def test_history_detail_charts_are_off_by_default() -> None:
