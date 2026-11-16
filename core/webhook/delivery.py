@@ -14,6 +14,7 @@ from astrbot.core.message.components import Image, Plain
 from astrbot.core.message.message_event_result import MessageChain
 
 from ..analysis import (
+    ANALYSIS_FAILURE_PREFIX,
     DEFAULT_ANALYSIS_PROMPT,
     PERSONA_TASK_HEADER,
     AnalysisRecord,
@@ -302,15 +303,18 @@ class WebhookDelivery:
                 notification.request_id,
             )
 
-            reply_text = await self._generate_analysis(prompt, notification.request_id)
-            if reply_text is None or self._closed:
+            diagnosis, failure_notice = await self._generate_analysis(
+                prompt, notification.request_id
+            )
+            message = diagnosis or failure_notice
+            if message is None or self._closed:
                 return
-            if self.config.analysis_context_hours:
+            if diagnosis is not None and self.config.analysis_context_hours:
                 records.append(
-                    summarize_analysis(user_prompt, reply_text, reference_time)
+                    summarize_analysis(user_prompt, diagnosis, reference_time)
                 )
 
-            chain = MessageChain([Plain(reply_text)])
+            chain = MessageChain([Plain(message)])
             for target in self.config.target_umos:
                 if self._closed:
                     break
@@ -343,7 +347,7 @@ class WebhookDelivery:
         self,
         user_prompt: str,
         request_id: str,
-    ) -> str | None:
+    ) -> tuple[str | None, str | None]:
         """Call the chat model once on behalf of every target.
 
         Args:
@@ -351,8 +355,10 @@ class WebhookDelivery:
             request_id: Correlation ID used in logs.
 
         Returns:
-            The diagnosis with ``DIAGNOSIS_PREFIX``, or None when no provider is
-            available or the call fails, times out, or returns no usable text.
+            The diagnosis with ``DIAGNOSIS_PREFIX`` and no notice, or no diagnosis
+            and a short notice for the targets when the call times out, fails,
+            or returns no usable text. Both are None when no provider is
+            available, a configuration problem that only the log reports.
         """
         provider: Provider | None = None
         if self.config.analysis_provider_id:
@@ -393,7 +399,7 @@ class WebhookDelivery:
                 "No chat completion provider available for webhook analysis (request_id=%s)",
                 request_id,
             )
-            return None
+            return None, None
 
         system_prompt = self.config.analysis_prompt or DEFAULT_ANALYSIS_PROMPT
         if self.config.analysis_persona_id:
@@ -429,14 +435,18 @@ class WebhookDelivery:
                 request_id,
                 self.config.analysis_timeout_seconds,
             )
-            return None
+            return None, (
+                f"{ANALYSIS_FAILURE_PREFIX}模型调用超时"
+                f"（{self.config.analysis_timeout_seconds} 秒）"
+            )
         except Exception as exc:
             logger.warning(
                 "LLM text_chat failed (request_id=%s): %s",
                 request_id,
                 type(exc).__name__,
             )
-            return None
+            # The exception text may carry endpoints or API errors; keep it in logs.
+            return None, f"{ANALYSIS_FAILURE_PREFIX}模型调用失败"
 
         if getattr(resp, "role", None) != "assistant":
             logger.warning(
@@ -444,15 +454,15 @@ class WebhookDelivery:
                 request_id,
                 getattr(resp, "role", None),
             )
-            return None
+            return None, f"{ANALYSIS_FAILURE_PREFIX}模型未返回有效内容"
 
         reply_text = format_analysis_reply(getattr(resp, "completion_text", None))
         if not reply_text:
             logger.warning(
                 "LLM response completion_text was empty (request_id=%s)", request_id
             )
-            return None
-        return reply_text
+            return None, f"{ANALYSIS_FAILURE_PREFIX}模型未返回有效内容"
+        return reply_text, None
 
     async def close(self) -> None:
         """Cancel and await all pending background tasks, then wait for renderer idle."""

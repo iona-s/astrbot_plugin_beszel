@@ -50,6 +50,8 @@ DEFAULT_ANALYSIS_PROMPT = """你是一名谨慎的 SRE/运维诊断助手。请�
 2. 第二条排查建议（没有必要时省略）。"""
 
 DIAGNOSIS_PREFIX = "[Beszel AI 诊断]\n"
+# Sent instead of a diagnosis when the model call fails; never kept as history.
+ANALYSIS_FAILURE_PREFIX = f"{DIAGNOSIS_PREFIX}本次未能生成诊断："
 PERSONA_TASK_HEADER = (
     "以下是本次 Beszel 告警诊断任务的要求。上面的人设只决定你的身份与语气，"
     "与以下要求冲突时以以下要求为准："

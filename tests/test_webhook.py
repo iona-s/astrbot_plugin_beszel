@@ -11,6 +11,7 @@ import pytest
 from astrbot.api.provider import Provider
 from astrbot.core.message.components import Image, Plain
 from astrbot_plugin_beszel.core.analysis import (
+    ANALYSIS_FAILURE_PREFIX,
     DEFAULT_ANALYSIS_PROMPT,
     DIAGNOSIS_PREFIX,
     PERSONA_TASK_HEADER,
@@ -1368,9 +1369,10 @@ async def test_webhook_analysis_timeout_does_not_cancel_history_branch() -> None
 
     sent_kinds = [type(chain.chain[0]) for _, chain in context.calls]
     assert sent_kinds.count(Image) == 1
-    assert not any(
-        "[Beszel AI 诊断]" in chain.get_plain_text() for _, chain in context.calls
-    )
+    # The timed-out analysis still tells the target instead of staying silent.
+    assert _analysis_replies(context) == [
+        ("target:umo1", f"{ANALYSIS_FAILURE_PREFIX}模型调用超时（0.1 秒）")
+    ]
 
 
 @pytest.mark.asyncio
@@ -1503,17 +1505,29 @@ async def test_webhook_analysis_calls_model_once_for_all_targets(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    ("case", "expected_warning"),
+    ("case", "expected_warning", "notice"),
     [
-        ("no_provider", "No chat completion provider available"),
-        ("exception", "LLM text_chat failed (request_id=fail-1): RuntimeError"),
-        ("wrong_role", "had non-assistant role: err"),
-        ("empty", "completion_text was empty (request_id=fail-1)"),
-        ("timeout", "Webhook analysis timed out (request_id=fail-1, timeout="),
+        ("no_provider", "No chat completion provider available", None),
+        (
+            "exception",
+            "LLM text_chat failed (request_id=fail-1): RuntimeError",
+            "模型调用失败",
+        ),
+        ("wrong_role", "had non-assistant role: err", "模型未返回有效内容"),
+        (
+            "empty",
+            "completion_text was empty (request_id=fail-1)",
+            "模型未返回有效内容",
+        ),
+        (
+            "timeout",
+            "Webhook analysis timed out (request_id=fail-1, timeout=",
+            "模型调用超时（0.1 秒）",
+        ),
     ],
 )
-async def test_webhook_analysis_failures_send_no_diagnosis(
-    case, expected_warning, astrbot_log_records
+async def test_webhook_analysis_failures_notify_targets(
+    case, expected_warning, notice, astrbot_log_records
 ) -> None:
     provider = {
         "no_provider": None,
@@ -1532,7 +1546,13 @@ async def test_webhook_analysis_failures_send_no_diagnosis(
     await _drain(delivery)
     await delivery.close()
 
-    assert _analysis_replies(context) == []
+    # Model failures send one short notice to every target, without the error
+    # details; a missing provider is a configuration problem left to the log.
+    expected = f"{ANALYSIS_FAILURE_PREFIX}{notice}" if notice else None
+    assert _analysis_replies(context) == (
+        [("target:a", expected), ("target:b", expected)] if expected else []
+    )
+    assert all("LLM API error" not in text for _, text in _analysis_replies(context))
     warnings = [
         r.getMessage() for r in astrbot_log_records if r.levelno == logging.WARNING
     ]
